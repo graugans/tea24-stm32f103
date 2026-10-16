@@ -18,6 +18,7 @@ set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/ld/stm32f103rb.ld)
 add_executable(${TARGET_NAME}
     src/main.cpp
     src/startup_stm32f103rb.c
+    src/syscalls.c
 )
 
 target_include_directories(${TARGET_NAME}

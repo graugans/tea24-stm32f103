@@ -1,7 +1,9 @@
 #include <stdint.h>
 
 extern int main(void);
+extern void __libc_init_array(void);
 
+/* Linker-provided memory range symbols. */
 extern uint32_t _estack;
 extern uint32_t _sidata;
 extern uint32_t _sdata;
@@ -68,6 +70,7 @@ void USBWakeup_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 
 __attribute__((section(".isr_vector")))
 const uint32_t interrupt_vector[] = {
+    /* Initial MSP value loaded by the CPU at reset. */
     (uint32_t)&_estack,
     (uint32_t)Reset_Handler,
     (uint32_t)NMI_Handler,
@@ -131,6 +134,7 @@ const uint32_t interrupt_vector[] = {
 
 void Reset_Handler(void)
 {
+    /* 1) Copy .data initializers from flash (_sidata) to RAM (_sdata.._edata). */
     uint32_t *src = &_sidata;
     uint32_t *dst = &_sdata;
 
@@ -138,11 +142,16 @@ void Reset_Handler(void)
         *dst++ = *src++;
     }
 
+    /* 2) Zero-fill .bss in RAM (_sbss.._ebss). */
     dst = &_sbss;
     while (dst < &_ebss) {
         *dst++ = 0;
     }
 
+    /* 3) Run C/C++ static constructors from .init_array. */
+    __libc_init_array();
+
+    /* 4) Enter application. */
     (void)main();
 
     while (1) {

@@ -15,6 +15,7 @@ Der aktuelle Stand implementiert als ersten Schritt:
 - LED-Blink auf **LD2 (PA5)**
 - UART-Ausgabe über **USART2 (PA2/PA3, ST-LINK Virtual COM Port)**
 - Debug-Setup für Breakpoints und Step-Debugging
+- **Speicherlayout-Demo** für `.data`, `.bss`, `.rodata`, Stack und Heap
 
 ---
 
@@ -99,10 +100,99 @@ Das Flash-Target nutzt OpenOCD mit `board/st_nucleo_f103rb.cfg`.
 
 Die Demo sendet bei 115200 Baud:
 
-- Initial: `STM32F103RB libopencm3 C++ startup OK`
-- Danach periodisch: `tick`
+- Initial: Startup-Meldung + Adressen/Sizes der Speicherbereiche
+- Ein Heap-Allocationsbeispiel (`_sbrk(64)`)
+- Danach periodisch: `tick` inkl. `.data`/`.bss`-Zähler
 
 Auf dem Host den seriellen Port des ST-LINK VCP öffnen (z. B. mit `screen`, `minicom` oder VS Code Serial Monitor).
+
+---
+
+## Speicherverwaltung im Beispiel
+
+### Speicherkarte (vereinfacht)
+
+```text
+FLASH 0x0800_0000 .. 0x0801_FFFF (128 KiB)
++--------------------------------------------------------------+
+| .isr_vector | .text/.init/.fini | .rodata | .ARM.extab/exidx|
++--------------------------------------------------------------+
+                        |
+                        | Startup kopiert Initialwerte von .data
+                        v
+RAM   0x2000_0000 .. 0x2000_4FFF (20 KiB)
++--------------------------------------------------------------+
+| .data | .bss | .noinit |        HEAP ->         | <- STACK  |
+|       |      |         | _heap_start .. _heap_end|          |
++--------------------------------------------------------------+
+                                   ^                ^
+                              _heap_end =      _stack_top
+                              _stack_limit
+```
+
+### `.rodata`
+
+Konstante Daten (z. B. Stringliterale wie `kRodataBanner`) liegen in Flash.
+
+### `.data`
+
+Initialisierte globale/statische Variablen (z. B. `g_data_counter`) liegen zur Laufzeit in RAM, ihr Initialwert wird aber aus Flash kopiert.
+
+### `.bss`
+
+Null-initialisierte globale/statische Variablen (z. B. `g_bss_counter`, `g_bss_buffer`) liegen in RAM und werden beim Reset auf `0` gesetzt.
+
+### Stack
+
+Der Main-Stack-Pointer startet bei `_stack_top` (RAM-Ende) und wächst nach unten. Das Linker-Script reserviert eine Mindestgröße über `_Min_Stack_Size`.
+
+### Heap
+
+Der Heap startet bei `_heap_start` und wächst nach oben bis `_heap_end` (= `_stack_limit`).  
+In [src/syscalls.c](/workspaces/tea24-stm32/src/syscalls.c) ist `_sbrk` implementiert, damit `malloc/new` bzw. die Demo-Allocation funktionieren.
+
+### `_sbrk`-Doku (aktueller Stand)
+
+`_sbrk` ist die primitive Speicher-Erweiterungsfunktion, die newlib intern für `malloc`/`new` nutzt.
+Unsere Implementierung in [src/syscalls.c](/workspaces/tea24-stm32/src/syscalls.c) arbeitet als **einfacher linearer Bump-Allocator**:
+
+1. Beim ersten Aufruf wird `current_heap_end` auf `_heap_start` gesetzt.
+2. Für `increment < 0` wird sofort mit Fehler (`errno = ENOMEM`, Rückgabe `(void*)-1`) abgebrochen.
+3. Es wird geprüft, ob `current_heap_end + increment > _heap_end`.
+4. Wenn genug Platz da ist:
+   - alter Heap-Zeiger wird gemerkt
+   - `current_heap_end` um `increment` erhöht
+   - alter Zeiger wird zurückgegeben
+
+Kurzform:
+
+```c
+old = current_heap_end;
+current_heap_end += increment;
+return old;
+```
+
+#### Eigenschaften des aktuellen Algorithmus
+
+- **Monoton wachsend**: Heap wächst nur nach oben.
+- **Kein Freigeben auf `_sbrk`-Ebene**: negative Inkremente sind absichtlich nicht erlaubt.
+- **Grenzschutz gegen Stack-Kollision**: Grenze ist `_heap_end` (aus dem Linker-Script, identisch zu `_stack_limit`).
+- **Deterministisch und klein**: gut für die erste Bare-Metal-Demo.
+
+#### Wichtige Grenzen
+
+- **Nicht thread-safe/reentrant** (kein Locking).
+- Kein Schutz gegen Fragmentierung auf `malloc`-Ebene (das ist Aufgabe der libc-Allocator-Logik, nicht von `_sbrk` selbst).
+- Bei Heap-Erschöpfung liefern `malloc/new` am Ende Fehler, weil `_sbrk` `ENOMEM` signalisiert.
+
+---
+
+## Relevante Dateien für das Thema
+
+- [ld/stm32f103rb.ld](/workspaces/tea24-stm32/ld/stm32f103rb.ld): Platzierung und Grenzen aller Bereiche
+- [src/startup_stm32f103rb.c](/workspaces/tea24-stm32/src/startup_stm32f103rb.c): `.data` kopieren, `.bss` nullen, C/C++ Init
+- [src/main.cpp](/workspaces/tea24-stm32/src/main.cpp): sichtbare Runtime-Demo per UART
+- [src/syscalls.c](/workspaces/tea24-stm32/src/syscalls.c): `_sbrk` und minimale Syscall-Stubs
 
 ---
 
