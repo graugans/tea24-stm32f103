@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "STM32F103RB Debug (OpenOCD)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "servertype": "openocd",
+      "configFiles": [
+        "board/st_nucleo_f103rb.cfg"
+      ],
+      "executable": "${command:cmake.launchTargetPath}",
+      "device": "STM32F103RBTx",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "CMake: build"
+    }
+  ]
+}
