@@ -11,6 +11,7 @@ target remote localhost:3333
 
 # Immer vom gleichen Startpunkt aus beginnen (auch bei bereits laufender Sitzung)
 monitor sysbus.cpu Reset
+maintenance flush register-cache
 tbreak main
 continue
 

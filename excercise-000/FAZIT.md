@@ -103,7 +103,7 @@ ab `0x0800_0000` im Flash, greift direkt auf Peripherie-Register zu (RCC, GPIO,
 USART) und hat kein Betriebssystem unter sich. Genau dafür gibt es den Emulator
 Renode bzw. das echte Board.
 
-**1.2 Segmentgrößen und Symbole**
+**1.2 Segmentgrößen und Symbole:**
 
 `size --format=sysv` (ohne Debug-Abschnitte; Adressen dort **dezimal**):
 
@@ -170,7 +170,7 @@ Startup-Code kopiert sie beim Reset von LMA nach VMA (`_sidata` → `_sdata`).
 bedeutungslos: Beide Abschnitte haben kein `CONTENTS`, es wird also nichts
 gespeichert und nichts kopiert. `.bss` wird vom Startup-Code nur genullt.
 
-**1.3 Die Vektortabelle**
+**1.3 Die Vektortabelle:**
 
 ```text
 Contents of section .isr_vector:
@@ -245,3 +245,120 @@ nucleo: Machine started.
 Fazit: Die CPU macht beim Reset genau zwei Dinge, bevor sie den ersten Befehl
 ausführt: `SP ← Wort 0`, `PC ← Wort 1` (Thumb-Bit → xPSR). Alles Weitere
 erledigt der Software-Startup-Code im `Reset_Handler` (Teil 5).
+
+---
+
+## Teil 3: GDB verbinden und die wichtigsten Befehle
+
+Demo: [gdb/teil3.gdb](gdb/teil3.gdb) (führt 3.1–3.6 einmal komplett vor)
+
+**3.1 Stimmen `sp` und `pc` mit der Vektortabelle überein? Warum hat `pc` kein Thumb-Bit?**
+
+```text
+sp             0x20005000          0x20005000
+pc             0x800061c           0x800061c <Reset_Handler>
+xpsr           0x41000000          1090519040
+0x8000000 <interrupt_vector>:   0x20005000      0x0800061d
+```
+
+- `sp` = Wort 0 = `0x2000_5000`: stimmt exakt.
+- `pc` = `0x0800_061C`, Wort 1 = `0x0800_061D`: Der PC ist um 1 kleiner.
+
+Thumb-Befehle sind 2 oder 4 Byte lang und liegen immer an **geraden**
+Adressen; Bit 0 des PC ist deshalb immer 0 und trägt keine Information. In
+Sprungzielen (Vektortabelle, `bx`, `blx`, Funktionszeiger) verwendet ARM
+Bit 0 stattdessen als Kennzeichen „Ziel ist Thumb-Code“. Beim Laden des
+Reset-Vektors übernimmt die CPU Bit 0 in das **T-Bit des xPSR** (Bit 24,
+`0x0100_0000`, hier gesetzt) und löscht es im PC. Siehe auch Teil 2.1.
+
+> **Achtung, Falle beim Nachvollziehen:** Wer GDB nach einem
+> `monitor sysbus.cpu Reset` direkt `continue` schickt, während die CPU
+> schon auf `Reset_Handler` steht und dort ein Breakpoint sitzt, kann die
+> Verbindung verlieren (`Remote connection closed`). GDB hat den alten PC
+> noch im Cache und versucht, den Breakpoint per Einzelschritt zu
+> überspringen. Abhilfe: nach dem Reset `maintenance flush register-cache`
+> (bzw. `flushregs`). Die Demo-Skripte machen das.
+
+**Aufgabe 3: `break main`, `continue`, einige `next`, mindestens zwei Variablen lesen**
+
+Ausschnitt aus der Demo (Halt in `main`, nach den Zeilen 189–191 und `clock_setup()`/`gpio_setup()`):
+
+```text
+(gdb) print g_data_counter
+$1 = 305419897
+(gdb) print/x g_data_counter
+$2 = 0x12345679
+(gdb) print &g_data_counter
+$3 = (uint32_t *) 0x20000000 <(anonymous namespace)::g_data_counter>
+(gdb) print g_bss_counter
+$4 = 1
+(gdb) ptype g_bss_buffer
+type = unsigned char [32]
+(gdb) print/x *g_bss_buffer@4
+$5 = {0x42, 0x0, 0x0, 0x0}
+(gdb) print kRodataBanner
+$6 = "Memory layout demo (.data/.bss/.rodata/stack/heap)\r\n"
+(gdb) set var g_bss_counter = 5
+(gdb) print g_bss_counter
+$7 = 5
+```
+
+- `g_data_counter` ist `0x12345679`: Startwert `0x12345678` aus `.data`,
+  Zeile 190 hat schon einmal `+1` gerechnet.
+- `g_bss_counter` ist `1`: aus `.bss` mit `0` gestartet, Zeile 189 hat `+1` gerechnet.
+- `g_bss_buffer[0]` ist `0x42` (Zeile 191), der Rest ist noch `0`.
+- `set var` schreibt wirklich in das RAM des Targets. Die nächste
+  `tick`-Zeile zeigt danach `bss=5` statt `bss=1` (ausgegeben wird vor dem Erhöhen).
+
+> **Hinweis zu `x/s kRodataBanner` (Beispiel in 3.2):** Auf diesem Stand
+> der Aufgabe meldet GDB `evaluation of this expression requires the program
+> to have a function "malloc"`. GCC beschreibt die Konstante in den
+> Debug-Infos nur über ihren **Wert** (`DW_AT_const_value`), nicht über ihre
+> Adresse. `print kRodataBanner` funktioniert deshalb, `x/s` und
+> `info symbol` nicht. Die Adresse erfährt man trotzdem über `nm`
+> (`0x08000c2c`) oder die UART-Ausgabe; dann klappt `x/s 0x08000c2c`.
+> Auf `main` ist das inzwischen behoben (`extern`-Deklaration in `main.cpp`).
+
+**3.5 `backtrace` und `info frame`** (Halt in `uart_setup`):
+
+```text
+#0  (anonymous namespace)::uart_setup () at src/main.cpp:70
+#1  0x0800059a in main () at src/main.cpp:195
+Stack level 0, frame at 0x20004fe8:
+ pc = 0x8000200 in (anonymous namespace)::uart_setup (src/main.cpp:70); saved pc = 0x800059a
+ Saved registers:
+  r7 at 0x20004fe0, lr at 0x20004fe4
+```
+
+`saved pc = 0x800059a` ist die Rücksprungadresse in `main` (direkt hinter dem
+`bl uart_setup`). Sie wurde als `lr` bei `0x2000_4FE4` auf den Stack gelegt.
+Die Warnung `unable to determine sp alias, assuming msp` ist harmlos: Renode
+meldet das Register `CONTROL` nicht, GDB nimmt korrekt den Main Stack Pointer an.
+
+**Optional: Meldungen in `/tmp/usart2.log`** (identisch mit der Ausgabe in Terminal 1):
+
+```text
+STM32F103RB startup OK
+Memory layout demo (.data/.bss/.rodata/stack/heap)
+&g_data_counter (.data): 0x20000000
+&g_bss_counter (.bss): 0x20000174
+kRodataBanner (.rodata): 0x08000C2C
+&stack_probe (stack): 0x20004FD0
+_sdata: 0x20000000
+_edata: 0x20000158
+_sbss: 0x20000158
+_ebss: 0x20000470
+_heap_start: 0x20000470
+_heap_end / _stack_limit: 0x20004800
+_stack_top: 0x20005000
+.data bytes: 344
+.bss bytes: 792
+heap capacity bytes: 17296
+heap alloc 64 bytes at 0x20000470
+tick data=0x12345679 bss=1
+tick data=0x1234567A bss=2
+...
+```
+
+Die Firmware gibt damit selbst schon die wichtigsten Adressen aus. Die Teile
+4–7 weisen sie mit GDB nach.
