@@ -362,3 +362,158 @@ tick data=0x1234567A bss=2
 
 Die Firmware gibt damit selbst schon die wichtigsten Adressen aus. Die Teile
 4–7 weisen sie mit GDB nach.
+
+---
+
+## Teil 4: Wo liegt was?
+
+Demo: [gdb/teil4.gdb](gdb/teil4.gdb) (gibt alle Werte für die Tabelle aus)
+
+**4.1 `info symbol`** (Halt in `main`):
+
+```text
+(gdb) info symbol &g_data_counter
+(anonymous namespace)::g_data_counter in section .data
+(gdb) info symbol &g_bss_counter
+(anonymous namespace)::g_bss_counter in section .bss
+(gdb) info symbol &g_bss_buffer
+(anonymous namespace)::g_bss_buffer in section .bss
+(gdb) info address main
+Symbol "main()" is a function at address 0x8000570.
+```
+
+> **`info symbol kRodataBanner` auf diesem Stand:** GDB meldet
+> `evaluation of this expression requires the program to have a function "malloc"`.
+> Grund (siehe Teil 3): In den DWARF-Debug-Infos steht für `kRodataBanner` nur
+> der **Wert**, keine Adresse. Die **ELF-Symboltabelle** kennt die Adresse aber,
+> und die liest `nm`:
+>
+> ```text
+> (gdb) shell arm-none-eabi-nm -C build/debug/stm32f103rb-app | grep kRodataBanner
+> 08000c2c t (anonymous namespace)::kRodataBanner
+> (gdb) info symbol 0x08000c2c
+> (anonymous namespace)::kRodataBanner in section .text
+> (gdb) x/s 0x08000c2c
+> 0x8000c2c <...kRodataBanner...>: "Memory layout demo (.data/.bss/.rodata/stack/heap)\r\n"
+> ```
+>
+> | Quelle | gelesen von | Inhalt für `kRodataBanner` |
+> | --- | --- | --- |
+> | ELF-Symboltabelle (`.symtab`) | `nm`, `info symbol <adresse>` | Name + Adresse |
+> | DWARF (`.debug_info`) | `print`, `x`, `info symbol <name>` | Name + Typ + Wert, **keine** Adresse |
+>
+> Auf `main` ist das behoben; dort funktioniert `info symbol kRodataBanner` direkt.
+
+**4.2 Tabelle:**
+
+| Variable | Adresse | Flash oder RAM? | Segment |
+| --- | --- | --- | --- |
+| `g_data_counter` | `0x2000_0000` | RAM | `.data` |
+| `g_bss_counter` | `0x2000_0174` | RAM | `.bss` |
+| `g_bss_buffer` | `0x2000_0178` (32 Byte) | RAM | `.bss` |
+| String aus `kRodataBanner` | `0x0800_0C2C` (53 Byte) | Flash | `.rodata` (Abschnitt laut GDB: **`.text`**) |
+| Funktion `main` | `0x0800_0570` | Flash | `.text` |
+| lokale Variable `stack_probe` in `print_memory_layout()` | `0x2000_4FD0` | RAM | Stack |
+| statische Variable `current_heap_end` in `_sbrk()` | `0x2000_019C` | RAM | `.bss` |
+
+Erläuterungen:
+
+- **`main`:** `info address main` liefert `0x0800_0570`, `break main` hält aber
+  bei `0x0800_0574`. GDB setzt den Breakpoint hinter den **Prolog** der
+  Funktion (`push {r7, lr}`, Frame-Pointer setzen), damit lokale Variablen
+  beim Halt schon gültig sind. `break *main` hielte genau bei `0x0800_0570`.
+- **`stack_probe`:** `print &stack_probe` (Halt in `print_memory_layout`)
+  ergibt `0x2000_4FD0`, also knapp unterhalb von `_stack_top` = `0x2000_5000`.
+  `info symbol &stack_probe` meldet `No symbol matches`: Lokale Variablen
+  haben **kein Symbol** in der ELF-Datei. Ihre Adresse entsteht erst zur
+  Laufzeit relativ zum Stack Pointer und hängt davon ab, wer die Funktion
+  aufruft. Die Firmware gibt denselben Wert per UART aus
+  (`&stack_probe (stack): 0x20004FD0`).
+- **`current_heap_end`:** Die Variable ist `static` **innerhalb** der Funktion
+  `_sbrk`, also nur dort sichtbar, aber trotzdem eine **globale Lebensdauer**:
+  Sie liegt in `.bss` (`current_heap_end in section .bss`), nicht auf dem
+  Stack. Sie ist mit `0` initialisiert, deshalb `.bss` und nicht `.data`.
+  `nm` zeigt sie als `current_heap_end.0`; der Zusatz `.0` unterscheidet
+  gleichnamige statische Variablen verschiedener Funktionen.
+
+**4.1 An welcher Adresse beginnt `.data`, und wo endet `.bss`?**
+
+```text
+(gdb) print &_sdata     -> 0x20000000
+(gdb) print &_edata     -> 0x20000158
+(gdb) print &_sbss      -> 0x20000158
+(gdb) print &_ebss      -> 0x20000470
+```
+
+`.data` beginnt bei `0x2000_0000` (ganz am Anfang des RAMs) und ist
+`0x158` = 344 Byte groß. `.bss` schließt direkt an und **endet bei
+`0x2000_0470`** (exklusiv; 792 Byte). `info files` bestätigt die Bereiche:
+
+```text
+0x08000000 - 0x080000ec is .isr_vector
+0x080000ec - 0x08000e30 is .text
+0x20000000 - 0x20000158 is .data
+0x20000158 - 0x20000470 is .bss
+0x20000470 - 0x20000470 is .noinit
+```
+
+Direkt dahinter beginnt der Heap (`_heap_start` = `0x2000_0470`, Teil 7).
+
+**4.2 Warum liegen `.data` und `.bss` im RAM, Konstanten und Code im Flash?**
+
+- **Flash** ist nicht flüchtig (der Inhalt bleibt ohne Strom erhalten), kann
+  aber im laufenden Betrieb nicht einfach beschrieben werden. Ideal für
+  alles, was sich **nie ändert**: Maschinencode, Konstanten, die
+  Vektortabelle und die **Startwerte** von `.data`.
+- **RAM** ist schnell beschreibbar, verliert seinen Inhalt aber ohne Strom.
+  Variablen **müssen sich ändern** können, deshalb liegen `.data` und `.bss`
+  im RAM. Weil das RAM nach dem Einschalten undefiniert ist, muss der
+  Startup-Code es vorbereiten: `.data` aus dem Flash kopieren, `.bss` nullen
+  (Teil 5).
+
+Auf dem Cortex-M3 kann die CPU Code und Konstanten direkt aus dem Flash
+lesen und ausführen („execute in place“). Es ist also nicht nötig, das
+Programm vorher ins RAM zu laden wie auf dem PC.
+
+**4.3 Wo ist `.rodata` geblieben?**
+
+```text
+$ arm-none-eabi-size --format=sysv build/debug/CMakeFiles/stm32f103rb-app.dir/src/main.cpp.o
+section                                          size   addr
+.data                                               0      0
+.bss                                                0      0
+.rodata._ZN12_GLOBAL__N_1L8kLedPortE                4      0
+.rodata._ZN12_GLOBAL__N_1L7kLedPinE                 2      0
+...
+.data._ZN12_GLOBAL__N_114g_data_counterE            4      0
+.bss._ZN12_GLOBAL__N_113g_bss_counterE              4      0
+.bss._ZN12_GLOBAL__N_112g_bss_bufferE              32      0
+.rodata._ZN12_GLOBAL__N_1L13kRodataBannerE         53      0
+.bss._ZN12_GLOBAL__N_113system_millisE              4      0
+.rodata                                           362      0
+.text.main                                        172      0
+...
+```
+
+- **4.3a** Die Objektdatei hat noch getrennte Abschnitte `.text.*`, `.rodata*`,
+  `.data.*` und `.bss.*`. Wegen `-ffunction-sections -fdata-sections` bekommt
+  **jede Funktion und jede Variable einen eigenen Abschnitt** (Name =
+  mangled Symbolname). Der Banner-Text steht in
+  `.rodata._ZN12_GLOBAL__N_1L13kRodataBannerE` (53 Byte = 50 Textzeichen +
+  `\r\n` (2) + abschließendes `\0` (1)). Der namenlose Abschnitt `.rodata` (362 Byte) enthält die
+  String-Literale aus den `uart_write("…")`-Aufrufen. Die Adressen sind alle
+  `0`: Erst der Linker legt die endgültigen Adressen fest. Die vielen kleinen
+  Abschnitte erlauben ihm, mit `--gc-sections` alles Unbenutzte wegzulassen.
+- **4.3b** Für die Hardware ist es egal: Beide landen im Flash, werden nur
+  gelesen und nie verändert. Die CPU unterscheidet beim Lesen nicht, ob ein
+  Byte zu „Code“ oder zu „Konstanten“ gehört; es sind Adressen im Flash.
+- **4.3c** Ein getrennter `.rodata`-Abschnitt hilft trotzdem:
+  - **Übersicht:** `size` und Map-Datei zeigen getrennt, wie viel Flash Code
+    und wie viel Konstanten (Tabellen, Texte) belegen.
+  - **Speicherbereiche:** Man kann Konstanten gezielt woanders hinlegen
+    (z. B. externes Flash, eigener Bereich für Kalibrierdaten).
+  - **Speicherschutz:** Mit einer MPU lässt sich `.rodata` als „lesen ja,
+    ausführen nein“ (Execute Never) markieren. Daten, die versehentlich oder
+    böswillig angesprungen werden, lösen dann einen Fault aus.
+  - **Analyse-Werkzeuge:** `nm` zeigt Konstanten dann mit `r` statt `t`, der
+    Debugger meldet `in section .rodata` statt `.text`.
