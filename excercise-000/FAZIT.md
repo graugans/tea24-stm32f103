@@ -79,3 +79,115 @@ läuft nur während `continue` (bis Breakpoint oder Ctrl+C) bzw. während eines
 `next`/`step`/`finish` (bis zur nächsten Zeile). Deshalb dauert `delay_ms`
 im Einzelschritt „ewig“: Jeder Schritt lässt nur wenige virtuelle
 Mikrosekunden verstreichen, die Schleife wartet aber auf 500 Millisekunden.
+
+---
+
+## Teil 1: Bauen und die ELF-Datei untersuchen
+
+Demo: [gdb/teil1.sh](gdb/teil1.sh) (reine Shell, kein GDB nötig)
+
+**1.1 Was meldet `file` über die Architektur? Warum kann man die Datei nicht auf dem PC ausführen?**
+
+```text
+ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), statically linked, with debug_info, not stripped
+```
+
+- **ELF 32-bit:** 32-Bit-Programm, **LSB** = Little Endian.
+- **ARM, EABI5:** Maschinencode für ARM (hier Cortex-M3, Thumb-Befehlssatz), nicht für x86-64.
+- **statically linked:** Alle Bibliotheken (libopencm3, newlib) sind eingebunden, es gibt kein Betriebssystem, das etwas nachlädt.
+- **with debug_info, not stripped:** Symbolnamen und Zeileninformationen sind enthalten, das braucht GDB.
+
+Auf dem PC läuft die Datei nicht, weil der x86-Prozessor die ARM-Befehle nicht
+versteht. Außerdem erwartet das Programm eine ganz andere Umgebung: Es liegt
+ab `0x0800_0000` im Flash, greift direkt auf Peripherie-Register zu (RCC, GPIO,
+USART) und hat kein Betriebssystem unter sich. Genau dafür gibt es den Emulator
+Renode bzw. das echte Board.
+
+**1.2 Segmentgrößen und Symbole**
+
+`size --format=sysv` (ohne Debug-Abschnitte; Adressen dort **dezimal**):
+
+| Abschnitt | Größe (Byte) | Adresse (hex) | Speicher |
+| --- | --- | --- | --- |
+| `.isr_vector` | 236 | `0x0800_0000` | Flash |
+| `.text` | 3396 | `0x0800_00EC` | Flash |
+| `.data` | 344 | `0x2000_0000` | RAM (Startwerte im Flash) |
+| `.bss` | 792 | `0x2000_0158` | RAM |
+| `.noinit` | 0 | `0x2000_0470` | RAM |
+
+Die Variablen aus `main.cpp` (`nm -C -S -n`):
+
+```text
+08000c2c 00000035 t (anonymous namespace)::kRodataBanner
+20000000 00000004 d (anonymous namespace)::g_data_counter
+20000174 00000004 b (anonymous namespace)::g_bss_counter
+20000178 00000020 b (anonymous namespace)::g_bss_buffer
+20000198 00000004 b (anonymous namespace)::system_millis
+```
+
+Alle Buchstaben sind klein, alle Symbole haben also internal linkage (anonymer
+Namespace). `kRodataBanner` wird als `t` (Text) und nicht als `r` angezeigt,
+weil die Konstante im Abschnitt `.text` gelandet ist (siehe 1.2a).
+
+Warum ist `.data` 344 Byte groß, obwohl `main.cpp` nur 4 Byte (`g_data_counter`)
+beisteuert? Den Rest bringen die Bibliotheken mit: libopencm3
+(`rcc_ahb_frequency`, `rcc_apb1_frequency`, `rcc_apb2_frequency`) und vor
+allem newlib (`_impure_data`, 320 Byte Verwaltungsstruktur der C-Bibliothek).
+Ähnlich bei `.bss`: `__sf`, `__atexit0` usw. stammen aus newlib.
+
+**1.2a Gibt es einen Abschnitt `.rodata`?**
+
+Nein. Das Linker-Script sortiert `*(.rodata*)` in den Ausgabeabschnitt `.text` ein:
+
+```ld
+.text :
+{
+    ...
+    *(.text*)
+    *(.rodata*)
+    ...
+} > FLASH
+```
+
+Konstanten und String-Literale liegen damit im Flash direkt hinter dem Code,
+z. B. `kRodataBanner` bei `0x0800_0C2C`.
+
+**1.2b Bei welchem Abschnitt sind VMA und LMA verschieden? Warum?**
+
+```text
+Idx Name          Size      VMA       LMA       File off  Algn
+  2 .data         00000158  20000000  08000e30  00020000  2**3
+                  CONTENTS, ALLOC, LOAD, DATA
+```
+
+Bei **`.data`**: Zur Laufzeit liegen die Variablen im RAM (VMA `0x2000_0000`),
+denn sie müssen veränderbar sein. Das RAM ist nach dem Einschalten aber leer.
+Die Startwerte (z. B. `0x12345678`) müssen daher dauerhaft im Flash
+gespeichert sein: LMA `0x0800_0E30`, direkt hinter `.text` (`_etext`). Der
+Startup-Code kopiert sie beim Reset von LMA nach VMA (`_sidata` → `_sdata`).
+
+`objdump -h` zeigt auch bei `.bss` und `.noinit` eine Flash-LMA. Die ist
+bedeutungslos: Beide Abschnitte haben kein `CONTENTS`, es wird also nichts
+gespeichert und nichts kopiert. `.bss` wird vom Startup-Code nur genullt.
+
+**1.3 Die Vektortabelle**
+
+```text
+Contents of section .isr_vector:
+ 8000000 00500020 1d060008 7d060008 7d060008  .P. ....}...}...
+```
+
+| Wort | Bytes im Speicher | Wert (Little Endian) | Bedeutung |
+| --- | --- | --- | --- |
+| 0 | `00 50 00 20` | `0x2000_5000` | initialer Stack Pointer = `_estack` |
+| 1 | `1d 06 00 08` | `0x0800_061D` | Reset-Handler, Bit 0 = Thumb |
+| 2, 3 | `7d 06 00 08` | `0x0800_067D` | NMI/HardFault → `Default_Handler` |
+
+- **Stack-Start:** `0x2000_0000 + 20 KiB = 0x2000_0000 + 0x5000 = 0x2000_5000`.
+  Das ist genau das Ende des RAMs, also die erste Adresse **hinter** dem RAM.
+  Das passt, weil der Cortex-M einen *full descending* Stack hat: Bei `push`
+  wird SP zuerst um 4 verringert und dann geschrieben. Das erste Wort landet
+  also bei `0x2000_4FFC`, der letzten gültigen RAM-Adresse.
+- **Reset-Handler:** `0x0800_061D - 1 = 0x0800_061C`. `nm` bestätigt
+  `0800061c T Reset_Handler`. Das gesetzte Bit 0 kennzeichnet den Thumb-Modus.
+  Würde es fehlen, löste die CPU beim Reset sofort einen HardFault aus.
