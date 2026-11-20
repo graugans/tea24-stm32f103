@@ -1,0 +1,20 @@
+# Teil 2: Renode starten und erste Monitor-Befehle
+#
+# Start (Terminal 1, Projekt-Hauptverzeichnis) – statt renode/nucleo.resc:
+#   renode --disable-xwt --console excercise-000/gdb/teil2.resc
+# Danach weiter mit excercise-000/gdb/teil2.gdb in Terminal 2.
+
+i @renode/nucleo.resc
+
+echo ""
+echo "=== 2.3 Bausteine der Maschine (gekuerzt: cpu, flash, sram, gpioPortA/led, gpioPortC/button, usart2) ==="
+peripherals
+
+echo ""
+echo "=== 2.1 PC und SP direkt nach dem Laden (Maschine noch nicht gestartet) ==="
+echo "sysbus.cpu PC:"
+sysbus.cpu PC
+echo "sysbus.cpu SP:"
+sysbus.cpu SP
+echo "-> Beide 0x0: Renode liest die Vektortabelle erst, wenn die Maschine startet."
+echo "-> Das passiert, sobald sich GDB verbindet (Terminal 2: teil2.gdb)."

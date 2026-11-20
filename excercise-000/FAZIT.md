@@ -191,3 +191,57 @@ Contents of section .isr_vector:
 - **Reset-Handler:** `0x0800_061D - 1 = 0x0800_061C`. `nm` bestätigt
   `0800061c T Reset_Handler`. Das gesetzte Bit 0 kennzeichnet den Thumb-Modus.
   Würde es fehlen, löste die CPU beim Reset sofort einen HardFault aus.
+
+---
+
+## Teil 2: Renode starten
+
+Demo:
+
+- Terminal 1: `renode --disable-xwt --console excercise-000/gdb/teil2.resc`
+  ([gdb/teil2.resc](gdb/teil2.resc), lädt `renode/nucleo.resc` und fragt PC/SP ab)
+- Terminal 2: `gdb-multiarch -x excercise-000/gdb/teil2.gdb build/debug/stm32f103rb-app`
+  ([gdb/teil2.gdb](gdb/teil2.gdb), vergleicht die Register mit der Vektortabelle)
+
+**2.1 Welchen Wert haben PC und SP direkt nach dem Start? Vergleich mit der Vektortabelle.**
+
+Das hängt davon ab, *wann* man fragt.
+
+**Im Renode-Monitor direkt nach dem Laden des Scripts** (wie in 2.3 beschrieben):
+
+```text
+(nucleo) sysbus.cpu PC
+0x0
+(nucleo) sysbus.cpu SP
+0x0
+```
+
+Beide Register sind noch `0x0`. Das Script lädt zwar das ELF, ruft aber kein
+`start` auf. Renode übernimmt die Werte aus der Vektortabelle erst in dem
+Moment, in dem die Maschine startet. Beim Verbinden mit GDB erscheint in
+Terminal 1:
+
+```text
+cpu: Guessing VectorTableOffset value to be 0x8000000.
+cpu: Setting initial values: PC = 0x800061D, SP = 0x20005000.
+nucleo: Machine started.
+```
+
+**Nach dem Verbinden mit GDB** (`target remote localhost:3333`):
+
+| | Vektortabelle (Teil 1.3) | Register |
+| --- | --- | --- |
+| SP | Wort 0 = `0x2000_5000` | `sp = 0x2000_5000` |
+| PC | Wort 1 = `0x0800_061D` | `pc = 0x0800_061C` (`Reset_Handler`) |
+
+- **SP** stimmt exakt mit Wort 0 überein: das Ende des RAMs.
+- **PC** ist um **1 kleiner** als Wort 1. Das ist das Thumb-Bit: Bit 0 des
+  Reset-Vektors wird nicht in den PC übernommen (Befehle liegen immer an
+  geraden Adressen), sondern landet im **T-Bit des xPSR** (Bit 24). GDB zeigt
+  `xpsr = 0x41000000`, Bit 24 ist gesetzt, die CPU läuft im Thumb-Modus.
+  Der Cortex-M kann nur Thumb; ein Reset-Vektor mit Bit 0 = 0 würde sofort
+  einen HardFault auslösen.
+
+Fazit: Die CPU macht beim Reset genau zwei Dinge, bevor sie den ersten Befehl
+ausführt: `SP ← Wort 0`, `PC ← Wort 1` (Thumb-Bit → xPSR). Alles Weitere
+erledigt der Software-Startup-Code im `Reset_Handler` (Teil 5).
