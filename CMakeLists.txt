@@ -57,6 +57,9 @@ target_link_options(${TARGET_NAME}
         --specs=nosys.specs
 )
 
+# Relink when the linker script changes (not tracked by default).
+set_target_properties(${TARGET_NAME} PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
+
 target_link_libraries(${TARGET_NAME}
     PRIVATE
         ${LIBOPENCM3_LIBRARY}
