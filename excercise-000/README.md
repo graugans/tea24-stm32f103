@@ -249,7 +249,7 @@ Was Sie ungefähr erwarten können:
 | `uart_write("STM32F103RB startup OK\r\n");` | **Der Text erscheint in Terminal 1!** |
 | `print_memory_layout();` | Es erscheinen mehrere Zeilen mit Adressen, `.data bytes`, `.bss bytes`, `heap capacity bytes`. |
 | `heap_demo();` | Die Zeile `heap alloc 64 bytes at 0x...` erscheint. |
-| in der Schleife: `gpio_toggle(...)` | Renode meldet vermutlich eine Zustandsänderung der LED (etwa `led: LED state changed to True`). |
+| in der Schleife: `gpio_toggle(...)` | Renode meldet die Zustandsänderung der LED: `[NOISY] gpioPortA.led: LED state changed to True`. Jederzeit nachfragen können Sie mit `monitor sysbus.gpioPortA.led State`. |
 | in der Schleife: `uart_write("tick data=")` ... | Eine `tick`-Zeile mit den Zählern erscheint. |
 | `delay_ms(500);` | Dauert ein bisschen (die Firmware wartet auf den Timer-Interrupt) – dann geht es weiter. |
 
@@ -423,6 +423,8 @@ machine LoadPlatformDescriptionFromString "gpioPortA: { 5 -> led@0 }"
 sysbus LoadELF @build/debug/stm32f103rb-app
 
 showAnalyzer sysbus.usart2
+# LED-Zustandswechsel im Log anzeigen (Meldungen der Stufe NOISY)
+logLevel -1 sysbus.gpioPortA.led
 machine StartGdbServer 3333
 ```
 
@@ -436,6 +438,7 @@ machine StartGdbServer 3333
 | `LoadPlatformDescriptionFromString "led: ..."` und `"gpioPortA: { 5 -> led@0 }"` | Fügt die LED LD2 hinzu und verdrahtet sie mit Pin PA5 von Port A. |
 | `sysbus LoadELF @build/debug/stm32f103rb-app` | Schreibt das Programm in den emulierten Flash und setzt PC und SP auf die Werte aus der Vektortabelle. Der Pfad ist **relativ zum aktuellen Verzeichnis** – Renode deshalb immer im Projekt-Hauptverzeichnis starten! |
 | `showAnalyzer sysbus.usart2` | Zeigt die UART-Ausgabe der Firmware an. Mit `--console` und ohne grafische Oberfläche (`--disable-xwt`) erscheint sie direkt im Renode-Terminal statt in einem Fenster. |
+| `logLevel -1 sysbus.gpioPortA.led` | Schaltet für die LED die ausführlichste Log-Stufe (`-1` = NOISY) ein. Erst dann meldet Renode jeden Zustandswechsel (`gpioPortA.led: LED state changed to True`). |
 | `machine StartGdbServer 3333` | Öffnet den GDB-Server auf TCP-Port **3333**. |
 
 > **Beobachtung:** Das Script ruft **kein** `start` auf. Die emulierte CPU steht also still, bis GDB sie startet. Das ist genau das, was wir zum Debuggen wollen.
@@ -474,7 +477,7 @@ sysbus.cpu SP
 | `start` / `pause` | CPU starten / anhalten. **Benutzen wir nicht – GDB übernimmt das.** |
 | `quit` | Beendet Renode. |
 
-**Frage 2.1:** Welchen Wert haben PC und SP direkt nach dem Start? (Erwartung für SP: `0x20005000`, das Ende des RAMs.) Vergleichen Sie mit Wort 0 und Wort 1 der Vektortabelle aus Teil 1.3. Was fällt auf? (Tipp: Thumb-Bit!)
+**Frage 2.1:** Welchen Wert haben PC und SP direkt nach dem Start? Fragen Sie einmal **jetzt** im Renode-Monitor und ein zweites Mal, **nachdem sich GDB verbunden hat** (Teil 3.1, in GDB: `info registers sp pc`). Warum unterscheiden sich die Werte? (Tipp: Achten Sie beim Verbinden auf die Meldungen in Terminal 1.) Vergleichen Sie die Werte nach dem Verbinden mit Wort 0 und Wort 1 der Vektortabelle aus Teil 1.3. Was fällt beim PC auf? (Tipp: Thumb-Bit!)
 
 ### 2.4 Die UART-Ausgabe sichtbar machen (optional – für diese Aufgabe nicht nötig)
 

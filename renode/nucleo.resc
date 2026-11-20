@@ -11,4 +11,6 @@ machine LoadPlatformDescriptionFromString "gpioPortA: { 5 -> led@0 }"
 sysbus LoadELF @build/debug/stm32f103rb-app
 
 showAnalyzer sysbus.usart2
+# LED-Zustandswechsel im Log anzeigen (Meldungen der Stufe NOISY)
+logLevel -1 sysbus.gpioPortA.led
 machine StartGdbServer 3333
