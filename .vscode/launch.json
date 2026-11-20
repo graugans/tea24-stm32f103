@@ -10,7 +10,9 @@
       "gdbPath": "/usr/bin/gdb-multiarch",
       "executable": "${workspaceFolder}/build/debug/stm32f103rb-app",
       "cwd": "${workspaceFolder}",
-      "runToEntryPoint": "main"
+      "runToEntryPoint": "main",
+      "overrideRestartCommands": ["monitor sysbus.cpu Reset"],
+      "overrideResetCommands": ["monitor sysbus.cpu Reset"]
     }
   ]
 }

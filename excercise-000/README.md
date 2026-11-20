@@ -301,12 +301,13 @@ Das Programm läuft jetzt frei. In Terminal 1 erscheinen laufend `tick`-Zeilen. 
 Sie können jederzeit neu beginnen:
 
 ```
-(gdb) monitor machine Reset
-(gdb) flushregs
+(gdb) monitor sysbus.cpu Reset
 (gdb) continue
 ```
 
-Der Breakpoint auf `main` bleibt erhalten. (Falls etwas hängt: In Terminal 1 `quit`, Renode neu starten, in GDB `target remote localhost:3333` erneut ausführen.)
+Läuft das Programm gerade, halten Sie es vorher mit **Ctrl+C** an. Die CPU startet dann wieder beim Reset-Handler, und der Breakpoint auf `main` bleibt erhalten. (Falls etwas hängt: In Terminal 1 `quit`, Renode neu starten, in GDB `target remote localhost:3333` erneut ausführen.)
+
+> **Nicht `monitor machine Reset` verwenden:** Das setzt zwar die ganze Maschine zurück, lässt sie danach aber sofort weiterlaufen, obwohl GDB glaubt, sie stehe still. Das Programm rennt dann an `main` vorbei, ohne anzuhalten.
 
 Wenn Sie ein Gefühl für `next`, `step`, `finish`, `continue` und die zwei Terminals haben, sind Sie bereit für den Rest.
 
@@ -655,15 +656,18 @@ Mit `monitor` schickt GDB einen Befehl **an den Monitor von Renode** weiter, ohn
 
 ```
 (gdb) monitor sysbus.cpu PC
-(gdb) monitor machine Reset
-(gdb) flushregs
+(gdb) monitor sysbus.cpu Reset
+(gdb) continue
 ```
 
 | Befehl | Was genau passiert |
 |---|---|
-| `monitor <befehl>` | Der Rest der Zeile wird an Renode geschickt und dort als Monitor-Befehl ausgeführt. Die Antwort erscheint in GDB. (Bei OpenOCD gilt dasselbe Prinzip, aber mit anderen Befehlen wie `monitor reset halt`.) |
-| `monitor machine Reset` | Setzt die emulierte Maschine zurück: Die CPU beginnt wieder beim Reset-Handler, die RAM-Inhalte werden dabei **nicht** zwingend gelöscht. |
-| `flushregs` | Verwirft den Register-Zwischenspeicher von GDB, sodass die Werte nach einem Reset frisch gelesen werden. |
+| `monitor <befehl>` | Der Rest der Zeile wird an Renode geschickt und dort als Monitor-Befehl ausgeführt. Die Antwort erscheint in GDB. (Bei OpenOCD gilt dasselbe Prinzip, aber mit anderen Befehlen wie `monitor reset halt`. Diesen Befehl kennt Renode **nicht**.) |
+| `monitor sysbus.cpu Reset` | Setzt die **CPU** zurück. Beim nächsten `continue` holt sie SP und PC aus der Vektortabelle und startet beim Reset-Handler. RAM und Peripherie (Timer, UART, GPIO) behalten ihren Zustand; der Startup-Code und die `*_setup()`-Funktionen initialisieren sie ohnehin neu. |
+
+> **Achtung:** Direkt nach `monitor sysbus.cpu Reset` zeigt GDB für `pc` und `sp` den Wert `0x0`. Renode lädt die Werte aus der Vektortabelle erst, wenn die CPU wieder losläuft. Wer den Zustand direkt nach dem Reset sehen will, setzt vorher `tbreak *Reset_Handler` (siehe Teil 5).
+>
+> `monitor machine Reset` ist mit verbundenem GDB ungeeignet: Renode lässt die Maschine danach sofort weiterlaufen, GDB bekommt davon nichts mit.
 
 ### 3.7 GDB beenden
 
@@ -845,11 +849,14 @@ Wir halten die CPU **ganz am Anfang** an – bevor der Startup-Code seine Arbeit
 1. Setzen Sie die Maschine auf den Anfang zurück. (Wenn Sie gerade erst verbunden haben und das Programm noch nicht gestartet ist, können Sie diesen Schritt überspringen.)
 
    ```
-   (gdb) monitor machine Reset
-   (gdb) flushregs
+   (gdb) tbreak *Reset_Handler
+   (gdb) monitor sysbus.cpu Reset
+   (gdb) continue
    (gdb) info registers sp pc
    (gdb) info symbol $pc
    ```
+
+   `tbreak *Reset_Handler` setzt einen einmaligen Breakpoint auf die **allererste Instruktion** des Reset-Handlers (der `*` bedeutet: genau diese Adresse, nicht erst hinter dem Funktionsprolog). So hält die CPU an, nachdem sie SP und PC aus der Vektortabelle geladen hat, aber bevor der Startup-Code etwas getan hat.
 
 2. **Vorher-Zustand** festhalten und den RAM absichtlich „vergiften":
 
@@ -860,7 +867,7 @@ Wir halten die CPU **ganz am Anfang** an – bevor der Startup-Code seine Arbeit
    (gdb) x/wx $pbss
    ```
 
-   Die Variable `g_bss_counter` enthält jetzt künstlichen Müll – so wie ein frisch eingeschaltetes RAM. (Der Wert von `g_data_counter` ist jetzt vermutlich noch `0`.)
+   Die Variable `g_bss_counter` enthält jetzt künstlichen Müll – so wie ein frisch eingeschaltetes RAM. (`g_data_counter` enthält noch das, was zuletzt im RAM stand: `0` direkt nach dem Start von Renode, nach einem Reset dagegen den Wert aus dem vorherigen Lauf, z. B. `0x12345679`. Ein Reset löscht das RAM nicht, genau wie auf echter Hardware.)
 
 3. **Wer schreibt in `g_data_counter`?** Setzen Sie einen Watchpoint und lassen Sie die CPU laufen:
 
@@ -1403,7 +1410,8 @@ Im Linker-Script steckt `*(.rodata*)` im Abschnitt `.text`. Trennen Sie das:
 | Bausteine anzeigen | `peripherals` |
 | PC / SP lesen | `sysbus.cpu PC`, `sysbus.cpu SP` |
 | UART in Datei (optional) | `sysbus.usart2 CreateFileBackend @/tmp/usart2.log true` |
-| Zurücksetzen | `machine Reset` |
+| Zurücksetzen (ohne GDB) | `machine Reset` |
+| Zurücksetzen (mit GDB, in GDB eingeben) | `monitor sysbus.cpu Reset`, dann `continue` |
 | Beenden | `quit` |
 
 ## Anhang C: Häufige Probleme
@@ -1418,7 +1426,9 @@ Im Linker-Script steckt `*(.rodata*)` im Abschnitt `.text`. Trennen Sie das:
 | Keine UART-Ausgabe im Renode-Terminal | Steht `showAnalyzer sysbus.usart2` im Script? Läuft das Programm schon? (Die CPU steht still, bis GDB sie mit `continue` oder `next` bewegt.) |
 | Alte Werte nach Neubau | Renode läuft noch mit der alten ELF-Datei: Renode neu starten. |
 | `print _sdata` zeigt Unsinn | Linker-Symbol! Immer `print &_sdata` benutzen. |
-| Programm läuft „einfach durch" | Nach dem Neustart von GDB ist die CPU evtl. noch am Laufen: mit `Ctrl+C` anhalten oder `monitor machine Reset`. |
+| Programm läuft „einfach durch" | Nach dem Neustart von GDB ist die CPU evtl. noch am Laufen: mit `Ctrl+C` anhalten oder `monitor sysbus.cpu Reset`. |
+| Nach einem Reset hält das Programm nicht mehr an `main` an | Es wurde `monitor machine Reset` oder `monitor reset halt` benutzt. Ersteres lässt die Maschine sofort weiterlaufen, Letzteres kennt Renode nicht. Mit `Ctrl+C` anhalten, dann `monitor sysbus.cpu Reset` und `continue`. |
+| `pc`/`sp` sind nach dem Reset `0x0` | Normal bei Renode: Die Werte werden erst beim Loslaufen aus der Vektortabelle geladen. Mit `tbreak *Reset_Handler` und `continue` den echten Startzustand ansehen. |
 | Watchpoint löst nie aus | Variable wird nicht verändert, oder die Renode-Version unterstützt keine Watchpoints: mit Breakpoints und `x`-Vergleichen arbeiten. |
 
 ## Anhang D: Mini-Glossar
