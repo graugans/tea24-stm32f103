@@ -26,7 +26,12 @@ uint32_t g_data_counter = 0x12345678;
 uint32_t g_bss_counter;
 uint8_t g_bss_buffer[32];
 
-/* .rodata: constants in flash. */
+/* .rodata: constants in flash.
+ * The extern declaration makes GCC emit a real address (DW_AT_location) in
+ * the debug info. Without it, GDB only knows the value and commands like
+ * `x/s kRodataBanner` or `info symbol kRodataBanner` fail.
+ */
+extern const char kRodataBanner[];
 const char kRodataBanner[] = "Memory layout demo (.data/.bss/.rodata/stack/heap)\r\n";
 
 volatile uint32_t system_millis = 0;
