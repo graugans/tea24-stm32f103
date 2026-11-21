@@ -12,6 +12,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/libopencm3.cmake)
 
+# Tests mit ctest (z. B. in excercise-001)
+enable_testing()
+
 set(TARGET_NAME stm32f103rb-app)
 set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/ld/stm32f103rb.ld)
 
@@ -75,3 +78,6 @@ add_custom_target(flash
     DEPENDS ${TARGET_NAME}
     USES_TERMINAL
 )
+
+# Übungsaufgaben mit eigener Firmware
+add_subdirectory(excercise-001)

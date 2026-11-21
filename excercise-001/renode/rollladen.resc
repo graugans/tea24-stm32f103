@@ -1,0 +1,12 @@
+:name: Rollladensteuerung (Nucleo F103RB)
+:description: Start aus dem Hauptverzeichnis: renode --disable-xwt --console excercise-001/renode/rollladen.resc
+
+using sysbus
+mach create "rollladen"
+machine LoadPlatformDescription @platforms/cpus/stm32f103.repl
+machine LoadPlatformDescription @excercise-001/renode/rollladen.repl
+
+sysbus LoadELF @build/debug/excercise-001/rollladen
+
+showAnalyzer sysbus.usart2
+machine StartGdbServer 3333
