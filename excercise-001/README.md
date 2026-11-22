@@ -58,7 +58,7 @@ Die Logik (`eingaben.cpp`, `rollladen.cpp`) kennt keine Hardware. Sie ließe
 sich unverändert auf dem PC testen. Nur `board.cpp` weiß, an welchem Pin was
 hängt.
 
-Der Automat entspricht dem aus der Vorlesung und den alten Klausuren:
+Der Automat entspricht dem aus der Vorlesung:
 
 ![Zustandsautomat: Fährt runter, Unten, Fährt hoch, Oben und Fehler](img/automat.svg)
 
