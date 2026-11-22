@@ -1,0 +1,40 @@
+// Tabelle mit Funktionszeigern: mit const im Flash, ohne const im RAM
+digraph tabelle {
+  graph [rankdir=LR bgcolor=white nodesep=0.3 ranksep=0.8 fontname="Helvetica" pad=0.3]
+  node  [shape=plaintext fontname="Helvetica" fontsize=10]
+  edge  [fontname="Helvetica" fontsize=10 arrowsize=0.7]
+
+  subgraph cluster_flash {
+    label=<<B>Mit const: Flash</B><BR/><FONT POINT-SIZE="9">nur lesbar, kein Programmfehler kann sie ändern</FONT>> style="rounded,filled" fillcolor="#e5f5e0" color="#31a354"
+    tf [label=<
+      <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
+        <TR><TD COLSPAN="2" BGCOLOR="#c7e9c0"><B>uebergangstabelle</B> (Ausschnitt)</TD></TR>
+        <TR><TD><B>folgezustand</B></TD><TD><B>aktion</B></TD></TR>
+        <TR><TD>FAEHRT_HOCH</TD><TD PORT="a1">motor_hoch</TD></TR>
+        <TR><TD>UNTEN</TD><TD PORT="a2">motor_aus</TD></TR>
+        <TR><TD>FEHLER</TD><TD PORT="a3">fehler_melden</TD></TR>
+      </TABLE>>]
+    node [shape=box style="rounded,filled" fillcolor="#ffffff" fontname="Courier"]
+    f1 [label="motor_hoch()"]
+    f2 [label="motor_aus()"]
+    f3 [label="fehler_melden()"]
+  }
+  tf:a1:e -> f1
+  tf:a2:e -> f2
+  tf:a3:e -> f3
+
+  subgraph cluster_ram {
+    label=<<B>Ohne const: RAM</B><BR/><FONT POINT-SIZE="9">jeder Schreibzugriff kann sie treffen</FONT>> style="rounded,filled" fillcolor="#fee0d2" color="#cb181d"
+    tr [label=<
+      <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
+        <TR><TD COLSPAN="2" BGCOLOR="#fdd0a2" PORT="puf"><B>char puffer[8]</B>  <FONT POINT-SIZE="9">(irgendeine Variable davor)</FONT></TD></TR>
+        <TR><TD COLSPAN="2" BGCOLOR="#fcbba1"><B>uebergangstabelle</B></TD></TR>
+        <TR><TD BGCOLOR="#fb6a4a"><FONT COLOR="#ffffff">überschrieben</FONT></TD><TD PORT="b1" BGCOLOR="#fb6a4a"><FONT COLOR="#ffffff"><B>0x4141 4141</B></FONT></TD></TR>
+        <TR><TD>UNTEN</TD><TD>motor_aus</TD></TR>
+      </TABLE>>]
+    weg [shape=box style="rounded,filled,dashed" fillcolor="#ffffff" color="#cb181d" fontcolor="#cb181d" label="??? HardFault\noder fremder Code"]
+  }
+  ueber [shape=box style="rounded,filled" fillcolor="#ffffff" color="#cb181d" fontcolor="#cb181d" fontname="Helvetica" label=<Pufferüberlauf:<BR/><FONT FACE="Courier">strcpy(puffer, eingabe)</FONT><BR/>mit 20 × 'A' statt höchstens 7 Zeichen>]
+  ueber -> tr:puf:w [color="#cb181d" style=dashed]
+  tr:b1:e -> weg [color="#cb181d" penwidth=1.6]
+}

@@ -1,0 +1,27 @@
+// Zustandsautomat der Rollladensteuerung
+// Feste Positionen: erzeugen mit  dot -Kneato -n -Tsvg automat.dot -o automat.svg
+digraph automat {
+  graph [bgcolor=white fontname="Helvetica" pad=0.3 splines=true]
+  node  [shape=circle fontname="Helvetica" fontsize=11 width=1.35 fixedsize=true style=filled]
+  edge  [fontname="Helvetica" fontsize=10 arrowsize=0.7]
+
+  start  [shape=point width=0.15 fillcolor=black pos="560,0!"]
+  hoch   [label=<Fährt hoch<BR/><FONT POINT-SIZE="9">K1 an</FONT>> fillcolor="#fdd0a2" pos="0,260!"]
+  oben   [label=<Oben<BR/><FONT POINT-SIZE="9">Motor aus</FONT>> fillcolor="#c6dbef" pos="380,260!"]
+  runter [label=<Fährt runter<BR/><FONT POINT-SIZE="9">K2 an</FONT>> fillcolor="#fdd0a2" pos="380,0!"]
+  unten  [label=<Unten<BR/><FONT POINT-SIZE="9">Motor aus</FONT>> fillcolor="#c6dbef" pos="0,0!"]
+  fehler [label=<Fehler<BR/><FONT POINT-SIZE="9">Motor aus</FONT>> fillcolor="#fcbba1" color="#cb181d" penwidth=2 pos="-240,440!"]
+
+  start  -> runter [label="Einschalten"]
+  hoch   -> oben   [label="ES oben"]
+  oben   -> runter [label="Taste runter"]
+  runter -> unten  [label="ES unten"]
+  unten  -> hoch   [label="Taste hoch"]
+  hoch   -> runter [taillabel="Taste runter" labeldistance=5.5 labelangle=-25 fontcolor="#08519c" color="#08519c"]
+  runter -> hoch   [taillabel="Taste hoch" labeldistance=5.5 labelangle=-25 fontcolor="#08519c" color="#08519c"]
+
+  edge [color="#cb181d" fontcolor="#cb181d" style=dashed]
+  unten -> fehler [label="ES oben"]
+  hoch  -> fehler [label="ES unten"]
+  oben  -> fehler [label="ES unten"]
+}

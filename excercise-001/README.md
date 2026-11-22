@@ -24,16 +24,14 @@ Stellen Sie sich einen Rollladen mit Elektromotor vor. Die Steuerung hat
 zwei Taster und zwei Endschalter. Der Motor wird über zwei Relais
 geschaltet, eines je Drehrichtung, wie bei einer Wendeschützschaltung.
 
-```text
-                 Nucleo-F103RB
-              +-----------------+
- Taste hoch --| PC0         PB8 |-- Relais K1: Motor hoch
-Taste runter--| PC1         PB9 |-- Relais K2: Motor runter
- ES oben    --| PC2         PA5 |-- LED LD2:   Motor läuft
- ES unten   --| PC3         PA2 |-- USART2 TX: Statusmeldungen (115200 Baud)
-              +-----------------+
- Eingänge aktiv low mit Pull-up (wie Taster B1 auf dem Nucleo)
-```
+> **Wendeschützschaltung:** So lässt man einen Motor in beide Richtungen
+> laufen. Ein Schütz (ein Schalter für große Ströme) schaltet den Motor für
+> die eine Richtung, ein zweites für die andere. Ziehen beide gleichzeitig
+> an, gibt es einen Kurzschluss. Deshalb sind die beiden gegeneinander
+> **verriegelt**: In der Anlage elektrisch über Hilfskontakte, in unserer
+> Firmware zusätzlich in Software (`board_motor_setzen()`).
+
+![Anlage: Taster und Endschalter an Port C, Relais K1/K2 an PB8/PB9](img/anlage.svg)
 
 Die Relais gibt es nur gedanklich. In Renode erscheinen sie als LEDs: an =
 Relais zieht an.
@@ -52,21 +50,20 @@ Die Firmware ist auf kleine Dateien verteilt. Jede hat genau eine Aufgabe:
 | `renode/rollladen.resc` | Startet die Simulation zum Ausprobieren |
 | `tests/rollladen.robot` | Automatischer Abnahmetest mit Robot Framework |
 | `cmake/check_rodata.cmake` | Prüft mit `nm`, dass die Übergangstabelle im Flash liegt |
+| `img/` | Die Grafiken dieser Anleitung als Graphviz-Quellen (`*.dot`), neu erzeugen mit `bash excercise-001/img/erzeugen.sh` |
+
+![Module der Firmware: Logik ohne Hardware, Hardware über board.cpp](img/module.svg)
+
+Die Logik (`eingaben.cpp`, `rollladen.cpp`) kennt keine Hardware. Sie ließe
+sich unverändert auf dem PC testen. Nur `board.cpp` weiß, an welchem Pin was
+hängt.
 
 Der Automat entspricht dem aus der Vorlesung und den alten Klausuren:
 
-```text
-  Start --> Fährt runter --ES unten--> Unten
-               ^    |                   |
-   Taste runter|    |Taste hoch         |Taste hoch
-               |    v                   v
-            Fährt hoch <----------------+
-               |
-               +--ES oben--> Oben --Taste runter--> Fährt runter
+![Zustandsautomat: Fährt runter, Unten, Fährt hoch, Oben und Fehler](img/automat.svg)
 
-  Endschalter, der nicht zur Lage passt (z. B. ES oben, während der
-  Rollladen unten steht) --> Fehler: Motor aus, nur ein Neustart hilft
-```
+Gestrichelte rote Pfeile: Ein Endschalter meldet etwas, das nicht zur Lage
+passt. Dann geht die Steuerung in den Fehlerzustand.
 
 Der **Fehlerzustand** ist eine Plausibilitätsprüfung, wie man sie aus der
 Automatisierung kennt. Meldet ein Endschalter etwas, das physikalisch nicht
@@ -147,6 +144,105 @@ cmake --build --preset debug --target rollladen
 ctest --test-dir build/debug --output-on-failure
 ```
 
+## Hintergrund: Funktionszeiger
+
+Für Teil 3 brauchen Sie Funktionszeiger. Hier das Wichtigste dazu, am
+Beispiel des STM32.
+
+### Was ist ein Funktionszeiger?
+
+Eine Funktion ist Maschinencode, der an einer bestimmten Adresse im Flash
+liegt. Ein **Funktionszeiger** ist eine Variable, die genau diese Adresse
+speichert. Über ihn lässt sich die Funktion aufrufen, ohne dass beim
+Schreiben des Codes feststeht, *welche* Funktion es ist.
+
+Ein Vergleich aus dem Alltag: Sie können jemanden anrufen, dessen Nummer Sie
+auswendig kennen (direkter Aufruf). Oder Sie wählen die Nummer, die auf einem
+Zettel steht. Wer den Zettel beschreibt, bestimmt, wer abnimmt (Aufruf über
+einen Zeiger). Daher kommt auch der englische Begriff **Callback**, also
+„Rückruf“: Man hinterlässt seine Nummer, und jemand anderes ruft später an.
+
+```cpp
+void motor_hoch();                // eine ganz normale Funktion
+
+typedef void (*aktion_t)();       // Typ: Zeiger auf Funktion ohne Parameter
+                                  //      und ohne Rückgabewert
+
+aktion_t aktion = motor_hoch;     // Adresse merken (ohne Klammern!)
+aktion();                         // Aufruf über den Zeiger
+```
+
+Die Schreibweise `void (*aktion_t)()` liest man von innen nach außen:
+`aktion_t` ist ein **Zeiger** (`*`) auf eine **Funktion** (`()`), die
+**nichts** (`void`) zurückgibt. Die Klammern um `*aktion_t` sind Pflicht.
+Mit `typedef` muss man das nur einmal schreiben.
+
+### Was passiert im Prozessor?
+
+Beim direkten Aufruf steht die Zieladresse fest im Befehl. Beim Aufruf über
+einen Zeiger muss der Prozessor sie erst aus dem Speicher laden:
+
+![Direkter Aufruf mit bl, indirekter Aufruf mit ldr und blx](img/aufruf.svg)
+
+Die Befehle stammen aus `arm-none-eabi-gcc -O1`. Sie können das selbst
+nachprüfen:
+
+```sh
+arm-none-eabi-objdump -d build/debug/excercise-001/rollladen | less
+```
+
+Für die Pipeline des Prozessors heißt das: Beim indirekten Sprung steht das
+Ziel erst fest, wenn die Adresse geladen ist. Der Cortex-M3 leert bei jedem
+Sprung ohnehin seine Pipeline. Große Prozessoren mit Sprungvorhersage müssen
+dagegen raten, *wohin* der Sprung geht.
+
+### Das Thumb-Bit: Funktionszeiger sind ungerade
+
+Lassen Sie sich die Adresse von `motor_hoch` mit `nm` anzeigen. Sie ist
+gerade, z. B. `0x0800 0000`. Im Funktionszeiger steht aber `0x0800 0001`:
+
+![Bit 0 eines Funktionszeigers ist das Thumb-Bit](img/thumb-bit.svg)
+
+Der Cortex-M3 kennt nur den kompakten **Thumb**-Befehlssatz. Bit 0 der
+Sprungadresse muss deshalb immer 1 sein. Der Compiler setzt es automatisch.
+Wer eine Adresse von Hand in einen Funktionszeiger schreibt und das Bit
+vergisst, löst beim Sprung einen Fehler aus (UsageFault, der ohne eigene
+Behandlung zum HardFault wird).
+
+### Kennen Sie schon: die Vektortabelle
+
+Sie haben Funktionszeiger schon benutzt, ohne es zu merken. Die Vektortabelle
+`interrupt_vector` in `src/startup_stm32f103rb.c` ist eine Tabelle von
+Adressen. Bei einem Interrupt holt der Prozessor die Adresse aus dem passenden
+Eintrag und springt dorthin.
+
+![Die Vektortabelle: Einträge zeigen auf die Handler-Funktionen](img/vektortabelle.svg)
+
+Alle Handler sind als `weak` mit `alias("Default_Handler")` angelegt. Schreiben
+Sie eine eigene Funktion `SysTick_Handler`, gewinnt diese. Vertippen Sie sich
+im Namen, landet der Interrupt kommentarlos im `Default_Handler`.
+
+### Zwei Gefahren
+
+**Ein NULL-Zeiger.** Ein Aufruf über einen Zeiger mit dem Wert 0 springt zur
+Adresse 0. Dort liegt beim STM32 keine Funktion, sondern ein Abbild der
+Vektortabelle, und Bit 0 fehlt. Das Ergebnis ist ein HardFault. Prüfen Sie
+Funktionszeiger, die leer sein dürfen, deshalb vor dem Aufruf:
+
+```cpp
+if (aktion != nullptr) {
+    aktion();
+}
+```
+
+**Eine Tabelle im RAM.** Liegt eine Tabelle mit Funktionszeigern im RAM, kann
+jeder fehlerhafte Schreibzugriff sie treffen, z. B. ein Pufferüberlauf in
+einer Variablen davor. Beim nächsten Aufruf springt der Prozessor dann an eine
+zufällige Adresse. Mit `const` liegt die Tabelle im Flash und ist vor solchen
+Fehlern sicher:
+
+![Mit const liegt die Tabelle sicher im Flash, ohne const im RAM](img/tabelle-flash-ram.svg)
+
 ## Aufgaben
 
 ### Teil 1: Verstehen
@@ -198,10 +294,12 @@ ctest --test-dir build/debug --output-on-failure
        void (*aktion)();   // z. B. motor_hoch, motor_aus, fehler_melden
    };
    ```
-   Bauen Sie die Tabelle so um. Prüfen Sie danach mit `nm`, wo die Tabelle
-   liegt, einmal mit und einmal ohne `const`. Warum ist eine Tabelle mit
-   Funktionszeigern im RAM besonders heikel? Denken Sie an einen
-   Pufferüberlauf, der ein paar Bytes zu weit schreibt.
+   Bauen Sie die Tabelle so um (siehe [Hintergrund: Funktionszeiger](#hintergrund-funktionszeiger)).
+   Prüfen Sie danach mit `nm`, wo die Tabelle liegt, einmal mit und einmal
+   ohne `const`. Stimmt der Wert im Zeiger mit der Adresse aus `nm` überein?
+5. **NULL ausprobieren:** Tragen Sie in einer Zelle `nullptr` als Aktion ein
+   und lösen Sie den Übergang in Renode aus. Wo bleibt der Prozessor stehen?
+   Finden Sie es mit GDB heraus (`bt`, `info registers pc`).
 
 > **Tipp:** Die Übergangstabelle muss nach jeder Erweiterung vollständig
 > sein: eine Zeile je Zustand, eine Spalte je Ereignis. Fehlt ein Eintrag,
