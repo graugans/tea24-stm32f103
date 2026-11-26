@@ -11,6 +11,29 @@
 #include <cstddef>
 #include <cstdint>
 
+// Hier merkt sich jede Rekursionsebene die Adresse ihrer lokalen Variable.
+// Globale Variable ohne Initialwert -> landet in .bss
+volatile std::uintptr_t g_stack_probe[6];
+
+// Ergebnis, damit der Compiler den Aufruf nicht wegoptimiert
+volatile int g_stack_result;
+
+// noinline: Der Compiler soll die Funktion wirklich aufrufen (kein Einsetzen)
+__attribute__((noinline)) int stackDemo(int depth, int maxDepth)
+{
+    // volatile: Die Variable muss wirklich im Stack-Frame liegen
+    volatile int local = depth * 10;
+
+    if (depth < 6) {
+        g_stack_probe[depth] = reinterpret_cast<std::uintptr_t>(&local);
+    }
+
+    if (depth < maxDepth) {
+        return stackDemo(depth + 1, maxDepth) + local;
+    }
+    return local;
+}
+
 namespace {
 
 constexpr uint32_t kLedPort = GPIOA;
@@ -198,6 +221,7 @@ extern "C" int main()
     uart_write("STM32F103RB startup OK\r\n");
     print_memory_layout();
     heap_demo();
+    g_stack_result = stackDemo(0, 5);
 
     while (true) {
         gpio_toggle(kLedPort, kLedPin);

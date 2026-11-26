@@ -9,7 +9,7 @@ set pagination off
 set confirm off
 target remote localhost:3333
 
-echo \n=== Renode-Log in Terminal 1: "Setting initial values: PC = 0x800061D, SP = 0x20005000" ===\n
+echo \n=== Renode-Log in Terminal 1: "Setting initial values: PC = 0x800061D, SP = 0x20005000" (PC ab Teil 6: 0x8000681)  ===\n
 echo \n=== Vektortabelle: Wort 0 (initialer SP), Wort 1 (Reset-Vektor) ===\n
 x/2wx 0x08000000
 

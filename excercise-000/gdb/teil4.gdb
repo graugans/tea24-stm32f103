@@ -26,8 +26,12 @@ echo \n=== kRodataBanner ===\n
 #   info symbol kRodataBanner  -> "requires the program to have a function malloc"
 # Die ELF-Symboltabelle (nm) kennt die Adresse aber:
 shell arm-none-eabi-nm -C build/debug/stm32f103rb-app | grep kRodataBanner
-info symbol 0x08000c2c
-x/s 0x08000c2c
+# Adresse aus nm in die GDB-Variable $banner uebernehmen (haengt vom Build ab,
+# z. B. 0x08000c2c ohne bzw. 0x08000c90 mit stackDemo aus Teil 6):
+shell arm-none-eabi-nm build/debug/stm32f103rb-app | awk '/kRodataBanner/ {print "set $banner = 0x" $1}' > build/debug/teil4-banner.gdb
+source build/debug/teil4-banner.gdb
+info symbol $banner
+x/s $banner
 
 echo \n=== stack_probe (lokal in print_memory_layout) ===\n
 tbreak print_memory_layout

@@ -634,31 +634,31 @@ deklariert sind: `&_edata - &_sdata` ergäbe sonst die Anzahl der **Wörter**
 gekürzt):
 
 ```text
-136	{
-=> 0x0800061c <+0>:	push	{r7, lr}
-   0x0800061e <+2>:	sub	sp, #8
-   0x08000620 <+4>:	add	r7, sp, #0
-138	    uint32_t *src = &_sidata;
-   0x08000622 <+6>:	ldr	r3, [pc, #68]	@ (0x8000668 <Reset_Handler+76>)
-   0x08000624 <+8>:	str	r3, [r7, #4]
+136     {
+=> 0x0800061c <+0>:     push    {r7, lr}
+   0x0800061e <+2>:     sub     sp, #8
+   0x08000620 <+4>:     add     r7, sp, #0
+138         uint32_t *src = &_sidata;
+   0x08000622 <+6>:     ldr     r3, [pc, #68]   @ (0x8000668 <Reset_Handler+76>)
+   0x08000624 <+8>:     str     r3, [r7, #4]
 ...
-142	        *dst++ = *src++;
-   0x08000638 <+28>:	ldr	r2, [r2, #0]
-   0x0800063a <+30>:	str	r2, [r3, #0]
-141	    while (dst < &_edata) {
-   0x0800063c <+32>:	ldr	r3, [r7, #0]
-   0x0800063e <+34>:	ldr	r2, [pc, #48]	@ (0x8000670 <Reset_Handler+84>)
-   0x08000640 <+36>:	cmp	r3, r2
-   0x08000642 <+38>:	bcc.n	0x800062c <Reset_Handler+16>
+142             *dst++ = *src++;
+   0x08000638 <+28>:    ldr     r2, [r2, #0]
+   0x0800063a <+30>:    str     r2, [r3, #0]
+141         while (dst < &_edata) {
+   0x0800063c <+32>:    ldr     r3, [r7, #0]
+   0x0800063e <+34>:    ldr     r2, [pc, #48]   @ (0x8000670 <Reset_Handler+84>)
+   0x08000640 <+36>:    cmp     r3, r2
+   0x08000642 <+38>:    bcc.n   0x800062c <Reset_Handler+16>
 ...
-152	    __libc_init_array();
-   0x0800065c <+64>:	bl	0x8000b68 <__libc_init_array>
-155	    (void)main();
-   0x08000660 <+68>:	bl	0x8000570 <main()>
-157	    while (1) {
-   0x08000664 <+72>:	nop
-   0x08000666 <+74>:	b.n	0x8000664 <Reset_Handler+72>
-   0x08000668 <+76>:	lsrs	r0, r6, #24      <- keine Befehle!
+152         __libc_init_array();
+   0x0800065c <+64>:    bl      0x8000b68 <__libc_init_array>
+155         (void)main();
+   0x08000660 <+68>:    bl      0x8000570 <main()>
+157         while (1) {
+   0x08000664 <+72>:    nop
+   0x08000666 <+74>:    b.n     0x8000664 <Reset_Handler+72>
+   0x08000668 <+76>:    lsrs    r0, r6, #24      <- keine Befehle!
    ...
 ```
 
@@ -682,8 +682,8 @@ Beobachtungen:
 
   ```text
   (gdb) x/5wx (char*)Reset_Handler + 76
-  0x8000668 <Reset_Handler+76>:	0x08000e30	0x20000000	0x20000158	0x20000158
-  0x8000678 <Reset_Handler+92>:	0x20000470
+  0x8000668 <Reset_Handler+76>: 0x08000e30      0x20000000      0x20000158      0x20000158
+  0x8000678 <Reset_Handler+92>: 0x20000470
                                 _sidata     _sdata      _edata      _sbss       _ebss
   ```
 
@@ -696,12 +696,12 @@ pc             0x800061c           0x800061c <Reset_Handler>
 Reset_Handler in section .text
 
 (gdb) x/wx $pdata
-0x20000000 <..g_data_counterE>:	0x1234567e      <- Rest vom vorherigen Lauf
+0x20000000 <..g_data_counterE>: 0x1234567e      <- Rest vom vorherigen Lauf
 (gdb) x/wx $pbss
-0x20000174 <..g_bss_counterE>:	0x00000006      <- Rest vom vorherigen Lauf
+0x20000174 <..g_bss_counterE>:  0x00000006      <- Rest vom vorherigen Lauf
 (gdb) set var *$pbss = 0xDEADBEEF
 (gdb) x/wx &_sidata
-0x8000e30:	0x12345678                       <- Startwert im Flash
+0x8000e30:      0x12345678                       <- Startwert im Flash
 ```
 
 Direkt nach dem Start von Renode sind beide Werte `0`; nach jedem weiteren
@@ -716,16 +716,16 @@ Hardware watchpoint 2: *$pdata
 Old value = 0
 New value = 305419896                        <- 0x12345678
 Reset_Handler () at .../startup_stm32f103rb.c:141
-141	    while (dst < &_edata) {
+141         while (dst < &_edata) {
 (gdb) x/i $pc
-=> 0x800063c <Reset_Handler+32>:	ldr	r3, [r7, #0]
+=> 0x800063c <Reset_Handler+32>:        ldr     r3, [r7, #0]
 
 (gdb) watch *$pbss
 (gdb) continue
 Old value = 3735928559                       <- 0xDEADBEEF
 New value = 0
 Reset_Handler () at .../startup_stm32f103rb.c:147
-147	    while (dst < &_ebss) {
+147         while (dst < &_ebss) {
 
 (gdb) tbreak main
 (gdb) continue
@@ -802,3 +802,345 @@ Reset_Handler () at .../startup_stm32f103rb.c:147
   antwortet `WWDG_IRQHandler in section .text`. Kein Fehler, an
   `0x0800_067C` liegen eben über 50 Namen, und `info symbol` nennt
   irgendeinen davon.
+
+---
+
+## Teil 6: Der Stack
+
+Demo: [gdb/teil6.gdb](gdb/teil6.gdb) (6.2 bis 6.4) und
+[gdb/teil6_overflow.gdb](gdb/teil6_overflow.gdb) (6.5, braucht den Build mit
+`stackDemo(0, 2000)`)
+
+**6.1** `stackDemo()`, `g_stack_probe` und `g_stack_result` sind wie
+vorgegeben in [src/main.cpp](../src/main.cpp) eingebaut, Aufruf
+`g_stack_result = stackDemo(0, 5);` nach `heap_demo();`.
+
+> **Adressen verschieben sich.** Durch den neuen Code (`stackDemo` liegt bei
+> `0x0800_018C`, ganz vorne in `.text`) und die neuen `.bss`-Variablen
+> ändern sich viele Adressen aus Teil 1 bis 5. Die Zusammenhänge bleiben
+> gleich:
+>
+> | Symbol | bis Teil 5 | ab Teil 6 |
+> | --- | --- | --- |
+> | `Reset_Handler` | `0x0800_061C` | `0x0800_0680` |
+> | `main` | `0x0800_0570` | `0x0800_05C4` |
+> | `kRodataBanner` | `0x0800_0C2C` | `0x0800_0C90` |
+> | `_sidata` | `0x0800_0E30` | `0x0800_0E94` |
+> | `g_stack_probe` (neu, 24 Byte) | – | `0x2000_0174` |
+> | `g_stack_result` (neu) | – | `0x2000_018C` |
+> | `g_bss_counter` | `0x2000_0174` | `0x2000_0190` |
+> | `current_heap_end` | `0x2000_019C` | `0x2000_01B8` |
+> | `_ebss` / `_heap_start` | `0x2000_0470` | `0x2000_048C` / `0x2000_0490` |
+>
+> `.data` bleibt unverändert (keine neue Variable mit Startwert), `.bss`
+> wächst von 792 auf 820 Byte. Weil `_ebss` jetzt nicht mehr auf 8 Byte
+> ausgerichtet ist, liegt `_heap_start` (`ALIGN(8)`) 4 Byte dahinter.
+
+**6.2 Vorübung `stack_probe`:**
+
+```text
+(gdb) x/i $pc        (Halt auf Zeile 156)
+=> 0x8000416 <print_memory_layout()+6>: mov.w   r3, #2779096485 @ 0xa5a5a5a5
+(gdb) next
+(gdb) print &stack_probe   -> 0x20004fd0
+(gdb) print/x $sp          -> 0x20004fd0
+(gdb) info frame
+Stack level 0, frame at 0x20004fe8:
+ ... saved pc = 0x80005fc
+ called by frame at 0x20004ff0
+ Saved registers:
+  r7 at 0x20004fe0, lr at 0x20004fe4
+```
+
+`&stack_probe` liegt genau bei `$sp` und nur `0x30` = 48 Byte unter
+`_stack_top` (`0x2000_5000`). Der Wert `0xA5A5A5A5` landet **nicht** in
+`.data`, weil `stack_probe` eine **lokale** Variable ist. Sie existiert erst,
+wenn die Funktion läuft, und zwar bei jedem Aufruf neu an der Stelle, auf die
+der SP gerade zeigt. Der Startwert kann deshalb nicht vorab an eine feste
+Adresse kopiert werden. Der Compiler erzeugt stattdessen **Befehle**, die den
+Wert bei jedem Aufruf hineinschreiben: `mov.w r3, #0xa5a5a5a5` (der Wert
+steckt im Befehl selbst, also in `.text`), danach `str r3, [r7, #0]`.
+
+**6.2 Hauptteil:**
+
+```text
+(gdb) break stackDemo
+(gdb) continue
+Breakpoint 4, stackDemo (depth=0, maxDepth=5) at .../main.cpp:25
+(gdb) bt
+#0  stackDemo (depth=0, maxDepth=5) at .../main.cpp:25
+#1  0x08000608 in main () at .../main.cpp:224
+(gdb) print $sp      -> (void *) 0x20004fd0
+(gdb) print &local   -> (volatile int *) 0x20004fdc
+(gdb) display depth
+(gdb) display/x $sp
+(gdb) continue
+1: depth = 1
+2: /x $sp = 0x20004fb8
+(gdb) continue
+1: depth = 2
+2: /x $sp = 0x20004fa0
+```
+
+Am Ende der Rekursion (`frame 5` = Ebene `depth = 0` auswählen, dann
+`finish` läuft genau bis zu deren Rücksprung nach `main`):
+
+```text
+(gdb) finish
+Run till exit from #5  0x080001c8 in stackDemo (depth=0, maxDepth=5) ...
+0x08000608 in main () at .../main.cpp:224
+Value returned is $13 = 150
+(gdb) x/6wx g_stack_probe
+0x20000174 <g_stack_probe>:     0x20004fdc      0x20004fc4      0x20004fac      0x20004f94
+0x20000184 <g_stack_probe+16>:  0x20004f7c      0x20004f64
+```
+
+(`150` = 0 + 10 + 20 + 30 + 40 + 50. Ein einfaches `finish` in Ebene 5
+kehrte nur in Ebene 4 zurück.)
+
+| Ebene (`depth`) | Adresse von `local` | Differenz zur vorherigen Ebene |
+| --- | --- | --- |
+| 0 | `0x2000_4FDC` | – |
+| 1 | `0x2000_4FC4` | −24 (`0x18`) |
+| 2 | `0x2000_4FAC` | −24 |
+| 3 | `0x2000_4F94` | −24 |
+| 4 | `0x2000_4F7C` | −24 |
+| 5 | `0x2000_4F64` | −24 |
+
+- **6.1** Die Adressen werden mit jeder Ebene **kleiner**. Jeder neue Aufruf
+  legt seinen Frame **unter** den des Aufrufers: Der Stack wächst auf dem
+  Cortex-M **nach unten**, von `_stack_top` in Richtung `.bss`.
+- **6.2** Ein Frame von `stackDemo` ist **24 Byte** groß: `push {r7, lr}`
+  (8 Byte) + `sub sp, #16` (16 Byte). 24 ist durch 8 teilbar, der SP bleibt
+  also an jeder Funktionsgrenze 8-Byte-ausgerichtet (AAPCS). Inhaltlich
+  bräuchte der Frame nur 20 Byte (2 Argumente, `local`, `r7`, `lr`). Die
+  4 Byte Füllung (Padding) kommen genau von dieser Regel.
+- **6.3** Sechs Ebenen verbrauchen 6 × 24 = **144 Byte** (SP in `main`
+  `0x2000_4FE8`, in Ebene 5 `0x2000_4F58`). In die reservierten
+  2 KiB passen 2048 / 24 = **85 Ebenen**. Weil `Reset_Handler` und `main`
+  davon schon 24 Byte belegen, sind es eigentlich nur
+  (2048 − 24) / 24 = **84**. Echte Programme brauchen außerdem Reserve für
+  Interrupts: Jede Exception legt mindestens 32 Byte (8 Register) zusätzlich
+  auf den Stack, siehe Bonus 2.
+
+**6.3 Frame zerlegen** (Halt in `depth = 2`, Breakpoint am Anfang von
+Zeile 25):
+
+```text
+(gdb) disassemble stackDemo
+   0x0800018c <+0>:     push    {r7, lr}
+   0x0800018e <+2>:     sub     sp, #16
+   0x08000190 <+4>:     add     r7, sp, #0
+   0x08000192 <+6>:     str     r0, [r7, #4]        <- depth
+   0x08000194 <+8>:     str     r1, [r7, #0]        <- maxDepth
+=> 0x08000196 <+10>:    ldr     r2, [r7, #4]
+   ...
+   0x080001a0 <+20>:    str     r3, [r7, #12]       <- local = depth * 10
+   ...
+   0x080001c4 <+56>:    bl      0x800018c <_Z9stackDemoii>
+   0x080001c8 <+60>:    mov     r2, r0              <- hierhin geht der Rücksprung
+   ...
+   0x080001d4 <+72>:    adds    r7, #16
+   0x080001d6 <+74>:    mov     sp, r7              <- Epilog: Platz freigeben
+   0x080001d8 <+76>:    pop     {r7, pc}            <- Rücksprung
+(gdb) x/8wx $sp
+0x20004fa0:     0x00000005      0x00000002      0x20004fb4      0x33323130
+0x20004fb0:     0x20004fb8      0x080001c9      0x00000005      0x00000001
+(gdb) next
+(gdb) x/8wx $sp
+0x20004fa0:     0x00000005      0x00000002      0x20004fb4      0x00000014
+0x20004fb0:     0x20004fb8      0x080001c9      0x00000005      0x00000001
+(gdb) info frame
+Stack level 0, frame at 0x20004fb8:
+ pc = 0x8000196 in stackDemo (.../main.cpp:25); saved pc = 0x80001c8
+ called by frame at 0x20004fd0
+ Arglist at 0x20004fa0, args: depth=2, maxDepth=5
+ Saved registers:
+  r7 at 0x20004fb0, lr at 0x20004fb4
+(gdb) info symbol 0x080001c8
+stackDemo(int, int) + 60 in section .text
+```
+
+Der Frame von Ebene 2, Wort für Wort:
+
+```text
+hohe Adressen
+0x2000_4FBC  0x00000001  depth    \  Frame von Ebene 1 (Aufrufer)
+0x2000_4FB8  0x00000005  maxDepth /  <- "frame at 0x20004fb8" = SP vor dem Aufruf
+             ----------------------------------------------------------
+0x2000_4FB4  0x080001C9  gesicherter lr  -> stackDemo+60 (Ebene 1), Thumb-Bit gesetzt
+0x2000_4FB0  0x20004FB8  gesicherter r7  (Frame Pointer von Ebene 1)
+0x2000_4FAC  0x00000014  local = 20      (vor "next" noch Müll: 0x33323130)
+0x2000_4FA8  0x20004FB4  Padding (nie beschrieben, alter Inhalt)
+0x2000_4FA4  0x00000002  depth
+0x2000_4FA0  0x00000005  maxDepth        <- SP = r7
+niedrige Adressen
+```
+
+1. `sp` = `0x2000_4FA0`, `&local` = `0x2000_4FAC` = `sp + 12`. `local`
+   liegt also im oberen Teil des Frames, direkt unter den gesicherten
+   Registern. Die Argumente aus `r0`/`r1` hat der Debug-Build ganz unten
+   abgelegt.
+2. Der gespeicherte `lr` ist `0x0800_01C9` (bei `sp + 20`). Ohne Thumb-Bit
+   ergibt das `0x0800_01C8` = `stackDemo + 60`: der Befehl direkt **nach**
+   dem `bl` in der aufrufenden Ebene 1.
+3. `info frame` bestätigt das: `saved pc = 0x80001c8`, `lr at 0x20004fb4`,
+   `r7 at 0x20004fb0`, `called by frame at 0x20004fd0` (Frame von Ebene 1).
+   `bt` zeigt dieselbe Adresse als `#1 0x080001c8 in stackDemo (depth=1, ...)`.
+   GDB baut den Backtrace genau aus diesen gesicherten `lr`-Werten auf.
+4. **Überschriebene Rücksprungadresse:** `pop {r7, pc}` lädt blind, was an
+   `sp + 20` steht, in den PC. Schreibt z. B. ein lokaler Puffer über sein
+   Ende hinaus (Pufferüberlauf), springt die Funktion beim Rücksprung an
+   eine **beliebige Adresse**. Das führt im harmlosen Fall zu einem HardFault,
+   im schlimmsten Fall wird gezielt fremder Code ausgeführt: Das ist der
+   klassische **Stack-Smashing-Angriff**. Auch ein überschriebener `r7`
+   zerstört den Frame des Aufrufers.
+
+Nebenbei sieht man, dass ein Stack-Frame **nicht initialisiert** wird. Vor
+dem `next` steht in `local` noch `0x33323130`, das sind die ASCII-Zeichen
+`'0' '1' '2' '3'` eines früheren Aufrufs (vermutlich der Ziffernpuffer von
+`uart_write_dec`). Das Padding-Wort enthält ebenfalls einen Rest. Deshalb
+haben nicht initialisierte lokale Variablen in C/C++ einen zufälligen Wert.
+
+**6.4 Stack-Verbrauch bis `main`:**
+
+```text
+(gdb) tbreak main
+(gdb) continue
+(gdb) print/x $sp          -> 0x20004fe8
+(gdb) print/x &_stack_top
+Missing ELF symbol "(anonymous namespace)::_stack_top".
+```
+
+Das ist derselbe Stolperstein wie in Teil 5: In `main.cpp` sucht GDB
+`_stack_top` im anonymen Namespace. Abhilfe: die Adresse vorher in C-Code
+merken (`set $stack_top = (char*)&_stack_top` im `Reset_Handler`), oder
+direkt `0x20005000` verwenden.
+
+**Frage 6.4:** `0x2000_5000 − 0x2000_4FE8` = **24 Byte**.
+
+```text
+(gdb) bt
+#0  main () at .../main.cpp:212
+(gdb) set backtrace past-main on
+(gdb) bt
+#0  main () at .../main.cpp:212
+#1  0x080006c8 in Reset_Handler () at .../startup_stm32f103rb.c:155
+```
+
+Standardmäßig hört `bt` bei `main` auf. Mit `set backtrace past-main on`
+zeigt GDB auch den Aufrufer `Reset_Handler`. Die 24 Byte setzen sich so
+zusammen:
+
+| Wer | Prolog | Byte |
+| --- | --- | --- |
+| `Reset_Handler` | `push {r7, lr}` + `sub sp, #8` (lokale `src`, `dst`) | 16 |
+| `main` | `push {r7, lr}` (keine lokalen Variablen) | 8 |
+
+Die Hardware selbst legt beim Reset nichts auf den Stack. Sie lädt nur den
+SP aus der Vektortabelle (`0x2000_5000`).
+
+**6.5 Experiment Stack Overflow** (`stackDemo(0, 2000)`):
+
+```text
+(gdb) watch g_data_counter
+(gdb) continue
+Old value = 305419896
+New value = 305419897
+main () at .../main.cpp:214            <- Halt 1: main selbst, das ist korrekt
+(gdb) continue
+Old value = 305419897
+New value = 536870920                  <- 0x20000008
+0x0800018e in stackDemo (depth=0, maxDepth=0) at .../main.cpp:23
+(gdb) x/i $pc-2
+   0x800018c <_Z9stackDemoii>:  push    {r7, lr}
+(gdb) print/x $sp          -> 0x20000000
+(gdb) info registers r7 lr
+r7             0x20000008
+lr             0x80001c9
+(gdb) bt 3
+#0  0x0800018e in stackDemo (depth=0, maxDepth=0) at .../main.cpp:23
+#1  0x080001c8 in stackDemo (depth=851, maxDepth=2000) at .../main.cpp:32
+#2  0x080001c8 in stackDemo (depth=850, maxDepth=2000) at .../main.cpp:32
+(gdb) x/2wx 0x20000000
+0x20000000 <g_data_counter>:    0x20000008      0x080001c9
+(gdb) continue
+main () at .../main.cpp:235            <- Halt 3: kein Absturz!
+(gdb) print/x g_data_counter          -> 0x20000009
+(gdb) print/x _sbrk::current_heap_end -> 0x7d0
+```
+
+Achtung: Der Watchpoint hält **zuerst in `main`** (die Zeile
+`g_data_counter = g_data_counter + 1U;`). Das ist erlaubt. Erst das zweite
+`continue` zeigt den Übeltäter.
+
+- **6.5** Den Wert hat **kein Quelltext**, sondern der Befehl
+  `push {r7, lr}` im Prolog von `stackDemo` geändert, in Ebene 852
+  (`bt` zeigt die Aufrufer 851, 850, …; Ebene 852 selbst hat ihre Argumente
+  noch nicht gespeichert, deshalb die Müllwerte `depth=0, maxDepth=0`).
+  Rechnung: Ebene *n* hat SP = `0x2000_4FD0 − 24·n`. Bei *n* = 852 legt
+  `push` den alten Frame Pointer (`r7` = `0x2000_0008`) genau auf
+  `0x2000_0000` = `g_data_counter` und die Rücksprungadresse
+  (`0x0800_01C9`) auf `0x2000_0004` = `rcc_ahb_frequency` (libopencm3).
+
+  Auf dem Weg nach unten ist der Stack der Reihe nach durch **alle**
+  Bereiche gewachsen: freier Platz → Heap (der 64-Byte-Block von
+  `heap_demo` bei `0x2000_0490`) → `.bss` (u. a. `current_heap_end`,
+  `g_stack_probe`, `g_bss_counter`) → `.data` → **unter das RAM**
+  (`0x1FFF_xxxx`). Die Folgeschäden sind sichtbar, das Programm läuft aber
+  ganz normal weiter:
+  - Renode gibt `tick data=0x20000008`, `0x20000009`, … aus statt
+    `0x12345679`, …
+  - `current_heap_end` = `0x7D0` (2000, der Wert von `maxDepth` aus einem
+    Frame). Der nächste `malloc` bekäme „Heap“ an Adresse `0x7D0`.
+  - `g_stack_probe` = `{0x344, 0x20004fc4, 0x20a8, 0x20000188, 0x80001c9, 0x7d0}`
+    statt der Adressen aus 6.2.
+  - `g_stack_result` = 36 529 720 statt 19 990 000.
+
+  > **Warum kein Absturz?** Renode bildet den Adressbereich
+  > `0x0000_0000`–`0x1FFF_FFFF` als **beschreibbaren** Speicher ab
+  > (`/opt/renode/platforms/cpus/stm32f103.repl`:
+  > `flash: Memory.MappedMemory @ sysbus 0x00000000, size: 0x20000000`).
+  > Die Frames unterhalb von `0x2000_0000` landen dort und bleiben intakt,
+  > deshalb funktionieren sogar alle Rücksprünge. Auf dem echten STM32F103RB
+  > liegt unter `0x2000_0000` kein RAM (`0x1FFF_F000` ist der
+  > ROM-Bootloader, darunter ist der Bereich reserviert). Spätestens dort
+  > gäbe es einen BusFault bzw. HardFault, und die CPU bliebe in
+  > `Default_Handler` hängen. Die Zerstörung von Heap, `.bss` und `.data`
+  > passiert aber **in beiden Fällen völlig lautlos** und viel früher.
+- **6.6** Kein „Segmentation fault“, weil niemand prüft:
+  - Es gibt **kein Betriebssystem** und **keine MMU**, die jedem Prozess
+    seinen Speicher zuteilt und Zugriffe außerhalb abfängt.
+  - Der STM32F103RB hat auch **keine MPU** (Memory Protection Unit). Ohne
+    sie darf jeder Befehl jede RAM-Adresse beschreiben.
+  - `_stack_limit` und `_Min_Stack_Size` sind nur **Zahlen im
+    Linker-Script**. Der Linker prüft damit beim Bauen, ob `.data` + `.bss`
+    + 2 KiB ins RAM passen. Zur Laufzeit vergleicht die Hardware den SP mit
+    nichts. Der Cortex-M3 hat (anders als Cortex-M33) kein
+    Stack-Limit-Register.
+  - Aus Sicht der CPU ist ein `push` auf `.data` ein ganz normaler,
+    gültiger Speicherzugriff.
+- **6.7** Möglichkeiten, Stack Overflows zu vermeiden oder früh zu erkennen:
+  1. **Rekursion und große lokale Arrays vermeiden**, Rekursionstiefe
+     begrenzen oder iterativ programmieren. Große Puffer `static` oder
+     global anlegen, dann sieht man sie in `size`.
+  2. **Stack-Bedarf messen bzw. berechnen:** `-fstack-usage` erzeugt pro
+     Funktion eine `.su`-Datei mit der Frame-Größe (hier wären es 24 Byte),
+     `-Wstack-usage=<n>` warnt bei zu großen Frames. Daraus und aus dem
+     Aufrufgraphen ergibt sich der Worst Case, dann `_Min_Stack_Size`
+     passend wählen.
+  3. **Stack-Painting** (Bonus 5): Stack beim Start mit einem Muster
+     (z. B. `0xA5A5A5A5`) füllen und später nachsehen, bis wohin es
+     überschrieben wurde (High-Water-Mark).
+  4. **Wächter am Stack-Ende:** ein bekanntes Wort („Canary“) bei
+     `_stack_limit` regelmäßig prüfen, oder im Debugger
+     `watch *(uint32_t*)0x20004800` setzen (Hardware-Watchpoint auf
+     `_stack_limit`).
+  5. **Hardware-Schutz** auf größeren Chips: MPU-Schutzbereich (Guard
+     Region) unter dem Stack, oder auf Cortex-M33 das Register `MSPLIM`.
+     Ein Overflow löst dann sofort einen Fault aus.
+  6. **Stack nach unten ins RAM legen** (unter `.data`/`.bss`): Ein
+     Overflow läuft dann sofort aus dem RAM heraus und erzeugt auf echter
+     Hardware einen BusFault, statt Variablen zu zerstören.
+
+Danach ist der Aufruf in `main()` wieder auf `stackDemo(0, 5)` gestellt.
