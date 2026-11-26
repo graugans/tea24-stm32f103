@@ -36,7 +36,9 @@ print (char*)&_ebss - (char*)&_sbss
 shell arm-none-eabi-size --format=sysv build/debug/stm32f103rb-app | grep -E "^\.(data|bss) "
 
 echo \n=== 5.2 Wer belegt .data? (nm -S) ===\n
-shell arm-none-eabi-nm -n -S -C build/debug/stm32f103rb-app | awk '$1>="20000000" && $1<"20000158" && NF>=4'
+# Ende von .data (_edata) aus nm lesen, es haengt vom Build ab (0x20000158 bis Teil 6,
+# mit malloc aus Teil 7 deutlich mehr):
+shell E=build/debug/stm32f103rb-app; END=$(arm-none-eabi-nm $E | awk '/ _edata$/ {print $1}'); arm-none-eabi-nm -n -S -C $E | awk -v end=$END '$1>="20000000" && $1<end && NF>=4'
 
 echo \n=== 5.3 Reset_Handler: Maschinencode mit Quelltext ===\n
 disassemble /s Reset_Handler

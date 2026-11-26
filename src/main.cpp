@@ -11,6 +11,9 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <cstdlib>
+volatile void* g_heap_ptr;   // landet in .bss
+
 // Hier merkt sich jede Rekursionsebene die Adresse ihrer lokalen Variable.
 // Globale Variable ohne Initialwert -> landet in .bss
 volatile std::uintptr_t g_stack_probe[6];
@@ -221,6 +224,7 @@ extern "C" int main()
     uart_write("STM32F103RB startup OK\r\n");
     print_memory_layout();
     heap_demo();
+    g_heap_ptr = std::malloc(32);
     g_stack_result = stackDemo(0, 5);
 
     while (true) {

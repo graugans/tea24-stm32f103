@@ -1114,8 +1114,8 @@ Achtung: Der Watchpoint hält **zuerst in `main`** (die Zeile
   - Der STM32F103RB hat auch **keine MPU** (Memory Protection Unit). Ohne
     sie darf jeder Befehl jede RAM-Adresse beschreiben.
   - `_stack_limit` und `_Min_Stack_Size` sind nur **Zahlen im
-    Linker-Script**. Der Linker prüft damit beim Bauen, ob `.data` + `.bss`
-    + 2 KiB ins RAM passen. Zur Laufzeit vergleicht die Hardware den SP mit
+    Linker-Script**. Der Linker prüft damit beim Bauen, ob
+    `.data` + `.bss` + 2 KiB ins RAM passen. Zur Laufzeit vergleicht die Hardware den SP mit
     nichts. Der Cortex-M3 hat (anders als Cortex-M33) kein
     Stack-Limit-Register.
   - Aus Sicht der CPU ist ein `push` auf `.data` ein ganz normaler,
@@ -1144,3 +1144,218 @@ Achtung: Der Watchpoint hält **zuerst in `main`** (die Zeile
      Hardware einen BusFault, statt Variablen zu zerstören.
 
 Danach ist der Aufruf in `main()` wieder auf `stackDemo(0, 5)` gestellt.
+
+---
+
+## Teil 7: Der Heap und `_sbrk`
+
+Demo: [gdb/teil7.gdb](gdb/teil7.gdb) (7.2, 7.3 und das Experiment
+Heap-Erschöpfung in einem Lauf)
+
+Die Messwerte stammen aus dem Build **mit** der `malloc`-Erweiterung aus 7.3
+(`g_heap_ptr = std::malloc(32);` nach `heap_demo();` in
+[src/main.cpp](../src/main.cpp)). Der erste `_sbrk`-Aufruf kommt trotzdem
+weiterhin aus `heap_demo`.
+
+> **`malloc` ist teuer**, schon bevor es etwas reserviert hat. Allein durch
+> das Einbinden wachsen die Segmente deutlich:
+>
+> | Segment | Teil 6 | Teil 7 (mit `malloc`) | Differenz |
+> | --- | --- | --- | --- |
+> | `.text` | 3732 | 5916 | +2184 Byte (`_malloc_r` allein 1370) |
+> | `.data` | 344 | 1384 | +1040 Byte (`__malloc_av_`: 1032 Byte Freispeicher-Listen) |
+> | `.bss` | 820 | 880 | +60 Byte (`g_heap_ptr`, `__malloc_current_mallinfo`, …) |
+>
+> Dadurch verschiebt sich `_heap_start` auf `0x2000_08D8`
+> (`current_heap_end` liegt jetzt bei `0x2000_05CC`). `__malloc_av_` landet
+> in `.data`, weil die leeren Listen auf sich selbst zeigen, also einen
+> Startwert ungleich 0 haben. Das kostet RAM **und** Flash.
+
+**7.1 Vorab (Quelltext von `_sbrk` in `src/syscalls.c`):**
+
+- **Beim allerersten Aufruf** ist `current_heap_end` noch `0`. `_sbrk` setzt
+  es auf `&_heap_start` und gibt (bei Erfolg) genau diese Adresse zurück:
+  Der erste Block beginnt am Anfang des Heaps.
+- **`(void*)-1`** kommt in zwei Fällen zurück, beide mit `errno = ENOMEM`:
+  bei negativem `increment` (Speicher zurückgeben wird nicht unterstützt) und
+  wenn `current_heap_end + increment` über `_heap_end` hinausginge.
+- **`current_heap_end`** liegt in **`.bss`**: `static` innerhalb der Funktion
+  heißt feste Adresse und Lebensdauer über alle Aufrufe hinweg, nicht Stack.
+  Startwert `0`, also `.bss` und nicht `.data` (wie Teil 4).
+
+**7.2 `_sbrk` im Debugger:**
+
+```text
+(gdb) break _sbrk
+(gdb) continue
+Breakpoint 2, _sbrk (increment=64) at .../syscalls.c:17
+(gdb) bt
+#0  _sbrk (increment=64) at .../syscalls.c:17
+#1  0x08000554 in (anonymous namespace)::heap_demo () at .../main.cpp:193
+#2  0x08000600 in main () at .../main.cpp:226
+(gdb) print increment      -> 64
+(gdb) info registers r0
+r0             0x40                64
+(gdb) info locals
+current_heap_end = 0x0
+previous_heap_end = 0x80004dd <print_memory_layout()+204> "..."
+(gdb) next   (4x)
+18          current_heap_end = &_heap_start;
+21      if (increment < 0) {
+26      if ((current_heap_end + increment) > (&_heap_end)) {
+31      uint8_t *previous_heap_end = current_heap_end;
+(gdb) info locals
+current_heap_end = 0x200008d8 ""
+(gdb) next   (2x)
+(gdb) info locals
+current_heap_end = 0x20000918 ""
+previous_heap_end = 0x200008d8 ""
+(gdb) finish
+Run till exit from #0  _sbrk (increment=64) at .../syscalls.c:33
+Value returned is $3 = (void *) 0x200008d8
+```
+
+`previous_heap_end` enthält vor seiner Zuweisung Müll (hier zufällig eine
+Codeadresse): eine nicht initialisierte lokale Variable, wie in Teil 6.3.
+`increment` steht beim Halt noch in `r0` (`0x40`), weil der Breakpoint hinter
+dem Prolog liegt und `r0` bis dahin nicht verändert wurde.
+
+> Nach `finish` steht die CPU in `main.cpp`, und `print/x &_heap_start`
+> scheitert dort wie in Teil 5 mit `Missing ELF symbol
+> "(anonymous namespace)::_heap_start"`. Das Skript merkt sich die
+> Adressen deshalb vorher im `Reset_Handler` (`set $heap_start = ...`).
+> `current_heap_end` erreicht man von überall mit `_sbrk::current_heap_end`.
+
+- **7.1** `_sbrk` gibt `0x2000_08D8` zurück, genau `&_heap_start`. Der
+  erste Block liegt also ganz unten im Heap, direkt hinter `.bss`.
+- **7.2** `current_heap_end` ist um **64 Byte** gewachsen
+  (`0x2000_08D8` → `0x2000_0918`), genau um `increment`. `_sbrk` fügt keine
+  Verwaltungsdaten hinzu und rundet nicht.
+- **7.3** `_heap_end − _heap_start` = `0x2000_4800 − 0x2000_08D8` =
+  **16 168 Byte** (≈ 15,8 KiB). `_heap_end` ist wie erwartet `0x2000_4800`,
+  und die Firmware meldet ebenfalls `heap capacity bytes: 16168`. (In Teil 6
+  waren es ohne `malloc` noch 17 264 Byte.)
+- **7.4** `current_heap_end` liegt in **`.bss`**:
+
+  ```text
+  (gdb) info address current_heap_end      (Halt in _sbrk)
+  Symbol "current_heap_end" is static storage at address 0x200005cc.
+  (gdb) info symbol &current_heap_end
+  current_heap_end in section .bss
+  $ arm-none-eabi-nm -n -C build/debug/stm32f103rb-app | grep current_heap_end
+  200005cc b current_heap_end.0
+  ```
+
+- **7.5** Treffen sich Heap und Stack, **überschreiben sie sich gegenseitig
+  lautlos**: Der Stack zerstört Heap-Daten, oder neue Heap-Blöcke liegen
+  mitten in aktiven Stack-Frames. Danach sind Variablen, Rücksprungadressen
+  oder `malloc`-Verwaltungsdaten kaputt (Teil 6.5 hat genau das gezeigt).
+  `_sbrk` schützt nur in **eine** Richtung: Der Heap darf nicht über die
+  **feste** Grenze `_heap_end` = `_stack_limit` wachsen. Damit bleiben die
+  2 KiB unter `_stack_top` für den Stack reserviert. Den tatsächlichen SP
+  prüft `_sbrk` nicht, und den Stack bremst niemand: Wird er tiefer als
+  2 KiB, wächst er ungehindert in den Heap. (Manche Implementierungen, z. B.
+  das `sysmem.c` aus STM32CubeIDE, vergleichen zusätzlich mit dem aktuellen
+  SP. Auch das hilft nur im Moment des `_sbrk`-Aufrufs.)
+
+**Experiment Heap-Erschöpfung** (Reset, Halt in `_sbrk`,
+`set var increment = 0x10000`):
+
+```text
+(gdb) set var increment = 0x10000
+(gdb) finish
+Run till exit from #0  _sbrk (increment=65536) at .../syscalls.c:17
+Value returned is $17 = (void *) 0xffffffff
+(gdb) print/x _sbrk::current_heap_end   -> 0x200008d8
+(gdb) print _impure_data._errno         -> 12      (ENOMEM)
+```
+
+`_sbrk` liefert **`(void*)-1`** = `0xFFFF_FFFF`, weil
+`0x2000_08D8 + 0x10000` = `0x2001_08D8` weit über `_heap_end` =
+`0x2000_4800` liegt. 64 KiB passen nicht in 20 KiB RAM, und erst recht
+nicht in die 15,8 KiB Heap. `current_heap_end` bleibt auf `_heap_start`
+(die Initialisierung in Zeile 18 lief schon), `errno` ist `ENOMEM`. Die
+Firmware erkennt den Fehler und meldet per UART `heap alloc failed`. Das
+anschließende `malloc(32)` funktioniert trotzdem, denn der Heap ist ja noch
+leer (`g_heap_ptr` = `0x2000_08E0`).
+
+> `errno` ist bei newlib kein einfaches globales Symbol, sondern ein Feld
+> der `struct _reent` (`_impure_data._errno`). Das globale Symbol `errno` in
+> `.bss` gehört zu einer anderen Variante und bleibt hier `0`.
+
+**7.3 `malloc` statt `_sbrk` direkt:**
+
+```text
+(gdb) continue
+Breakpoint 2, _sbrk (increment=56) at .../syscalls.c:17
+(gdb) bt
+#0  _sbrk (increment=56) at .../syscalls.c:17
+#1  0x080014e8 in _sbrk_r (ptr=..., incr=incr@entry=56) at .../newlib/libc/reent/sbrkr.c:51
+#2  0x08000e24 in malloc_extend_top (nb=<optimized out>, ...) at .../newlib/libc/stdlib/_mallocr.c:2170
+#3  _malloc_r (reent_ptr=0x20000018 <_impure_data>, bytes=<optimized out>) at .../_mallocr.c:2585
+#4  0x08000606 in main () at .../main.cpp:227
+(gdb) finish
+Value returned is $10 = (void *) 0x20000918
+(gdb) continue
+Breakpoint 2, _sbrk (increment=1712) at .../syscalls.c:17
+(gdb) finish
+Value returned is $12 = (void *) 0x20000950
+(gdb) print/x _sbrk::current_heap_end   -> 0x20001000
+(gdb) print g_heap_ptr                  -> (volatile void *) 0x20000920
+(gdb) x/2wx (char*)g_heap_ptr - 8
+0x20000918:     0x00000000      0x00000029
+```
+
+- **Wer ruft auf?** `main` → `_malloc_r` → `malloc_extend_top` → `_sbrk_r`
+  → `_sbrk`. `malloc` selbst fehlt im Backtrace: Es ist nur ein Wrapper aus
+  vier Befehlen, der `_impure_ptr` holt und mit `b.w _malloc_r` **ohne Link**
+  weiterspringt (Tail-Call), also keinen eigenen Frame hat.
+  `_sbrk_r` ist die „reentrante“ Hülle von newlib, die `errno` in der
+  richtigen `struct _reent` setzt. Die newlib-Quellen fehlen im Container,
+  daher `No such file or directory` nach `finish`.
+- **Wie viel?** Nicht 32 Byte, sondern **zwei** Aufrufe mit **56** und
+  **1712** Byte, zusammen **1768 Byte**:
+  1. **56** = 32 (Nutzdaten) + 8 (Chunk-Header) + 16 (`MINSIZE`, damit
+     hinter dem Block noch ein gültiger „Top“-Rest bleibt).
+  2. **1712** = `0x6B0`: Beim ersten Mal rundet `malloc_extend_top` das
+     Heap-Ende auf die nächste **4-KiB-„Seite“** auf:
+     `0x2000_0950 + 0x6B0 = 0x2000_1000`.
+- **Warum größere Blöcke?** `malloc` verwaltet den Speicher selbst und holt
+  sich bei `_sbrk` auf Vorrat einen großen Bereich (auf dem PC ist jeder
+  `sbrk` ein teurer Systemaufruf). Jeder Block bekommt einen 8-Byte-Header
+  und wird auf 8 Byte ausgerichtet. Die nächsten `malloc`s bedient es aus
+  dem Rest (Top-Chunk), ohne `_sbrk` erneut zu rufen. Auf dem
+  Mikrocontroller heißt das: Ein `malloc(32)` hat sofort **1,7 KiB** des
+  Heaps (gut 10 %) belegt. Zurückgeben kann `malloc` nichts, denn dieses
+  `_sbrk` lehnt negative `increment` ab.
+- **Der Chunk-Header** vor dem Block: `prev_size = 0`, `size = 0x29`
+  = 40 Byte (32 + 8) mit gesetztem Bit 0 (`PREV_INUSE`, der Bereich davor ist
+  belegt, nämlich der 64-Byte-Block von `heap_demo`).
+- **Wo liegt was?** Der **Block** liegt im Heap (`0x2000_0920`). Die
+  Variable **`g_heap_ptr`** ist nur der **Zeiger** darauf und liegt in
+  `.bss` (`0x2000_0584`, `info symbol &g_heap_ptr` → `.bss`).
+
+Belegung des Heaps nach `heap_demo` und `malloc(32)`:
+
+```text
+0x2000_4800  _heap_end = _stack_limit
+             |  frei (nie von _sbrk vergeben)         14 336 Byte
+0x2000_1000  current_heap_end  (aufgerundet auf 4 KiB)
+             |  Top-Chunk von malloc (frei, Vorrat)    1 728 Byte
+0x2000_0940  +-----------------------------------------
+             |  malloc-Block, Nutzdaten (32 Byte)  <- g_heap_ptr = 0x2000_0920
+0x2000_0918  |  Chunk-Header (8 Byte)
+             +-----------------------------------------
+             |  heap_demo: _sbrk(64)                      64 Byte
+0x2000_08D8  _heap_start
+```
+
+**7.4 Stack und Heap:**
+
+| Eigenschaft | Stack | Heap |
+| --- | --- | --- |
+| Wer verwaltet den Speicher? | Der **Compiler** mit Hardware-Unterstützung: Prolog/Epilog jeder Funktion verschieben den SP (`push`, `sub sp`, `pop`). | Das **Programm** über die Bibliothek: `malloc`/`free` (newlib) und darunter `_sbrk`, das die Grenze `current_heap_end` verschiebt. |
+| Wachstumsrichtung auf diesem Chip | Nach **unten**, von `_stack_top` = `0x2000_5000` in Richtung `_stack_limit`. | Nach **oben**, von `_heap_start` = `0x2000_08D8` in Richtung `_heap_end`. |
+| Wann wird Speicher belegt? | Automatisch beim **Funktionsaufruf** (Frame mit Rücksprungadresse, gesicherten Registern, lokalen Variablen) und bei jedem Interrupt. | Explizit, wenn das Programm **`malloc`/`new`** aufruft, zur Laufzeit in beliebiger Größe. |
+| Wann wird er freigegeben? | Automatisch beim **Rücksprung** (`pop {r7, pc}`), streng in umgekehrter Reihenfolge (LIFO). | Nur explizit mit **`free`/`delete`**, in beliebiger Reihenfolge. Mit diesem `_sbrk` geht nichts an den Heap zurück, freie Blöcke verwendet nur `malloc` selbst wieder. |
+| Typisches Risiko | **Stack Overflow** durch Rekursion, große lokale Arrays oder verschachtelte Interrupts. Er überschreibt lautlos Heap, `.bss` und `.data` (Teil 6.5). Außerdem Pufferüberläufe, die Rücksprungadressen zerstören. | **Speicherlecks** (vergessenes `free`), **Fragmentierung** (genug freier Speicher, aber kein ausreichend großes Stück), **Erschöpfung** (`malloc` liefert `NULL`), Zugriff nach `free`. Dazu kommen schwer vorhersagbare Laufzeit und Speicherverbrauch. Deshalb verbieten viele Embedded-Richtlinien (z. B. MISRA) dynamischen Speicher nach der Initialisierung. |
