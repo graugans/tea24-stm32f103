@@ -517,3 +517,288 @@ section                                          size   addr
     böswillig angesprungen werden, lösen dann einen Fault aus.
   - **Analyse-Werkzeuge:** `nm` zeigt Konstanten dann mit `r` statt `t`, der
     Debugger meldet `in section .rodata` statt `.text`.
+
+---
+
+## Teil 5: Der Startup-Code
+
+Demo: [gdb/teil5.gdb](gdb/teil5.gdb)
+
+> **Stolperstein `print &_sdata`:** Das funktioniert nur, wenn die CPU in
+> C-Code steht (z. B. `Reset_Handler`, `_sbrk`). Steht sie in `main.cpp`,
+> meldet GDB `Missing ELF symbol "(anonymous namespace)::_sdata"`: `main.cpp`
+> deklariert `_sdata` & Co. per `extern "C"` **innerhalb** des anonymen
+> Namespace, und GDB sucht dann zuerst dort. Das Skript hält deshalb gleich
+> zu Beginn auf `*Reset_Handler`.
+
+**5.2 Linker-Symbole:**
+
+```text
+$ arm-none-eabi-nm -n build/debug/stm32f103rb-app | grep ...
+00000800 A _Min_Stack_Size
+08000e30 A _sidata
+20000000 D _sdata
+20000158 D _edata
+20000158 B _sbss
+20000470 B _ebss
+20000470 B _end
+20000470 B _heap_start
+20004800 A _heap_end
+20004800 B _stack_limit
+20005000 A _estack
+20005000 R _stack_top
+```
+
+| Symbol | Wert | Bedeutung |
+| --- | --- | --- |
+| `_sidata` | `0x0800_0E30` | Startwerte von `.data` im Flash (direkt hinter `.text`) |
+| `_sdata` / `_edata` | `0x2000_0000` / `0x2000_0158` | `.data` im RAM |
+| `_sbss` / `_ebss` | `0x2000_0158` / `0x2000_0470` | `.bss` im RAM |
+| `_end` = `_heap_start` | `0x2000_0470` | Anfang des Heaps |
+| `_heap_end` = `_stack_limit` | `0x2000_4800` | `_stack_top - 0x800` |
+| `_estack` = `_stack_top` | `0x2000_5000` | Ende des RAMs, Start-SP |
+
+Das `A` bei `_Min_Stack_Size`, `_sidata`, `_heap_end` und `_estack` heißt
+„absolut“: Diese Symbole sind im Linker-Script **berechnet** und gehören zu
+keinem Abschnitt. `_Min_Stack_Size` ist gar keine Adresse, sondern eine Zahl
+(`0x800`), die als Symbol verkleidet ist.
+
+**Aufgabe 5.2 Größen:**
+
+```text
+(gdb) print (char*)&_edata - (char*)&_sdata   -> 344
+(gdb) print (char*)&_ebss  - (char*)&_sbss    -> 792
+$ arm-none-eabi-size --format=sysv build/debug/stm32f103rb-app
+.data                344   536870912
+.bss                 792   536871256
+```
+
+`.data` = `0x158` = 344 Byte, `.bss` = `0x318` = 792 Byte. Beides stimmt
+exakt mit `size` überein. (`536870912` ist `0x2000_0000` in Dezimal.) Der
+Cast auf `char*` ist nötig, weil die Symbole im Startup-Code als `uint32_t`
+deklariert sind: `&_edata - &_sdata` ergäbe sonst die Anzahl der **Wörter**
+(86), nicht der Bytes.
+
+**5.3 Reset-Handler im Quelltext:**
+
+- **Zwei Schleifen:**
+  1. `while (dst < &_edata) *dst++ = *src++;` kopiert ab `_sidata` (Flash)
+     nach `_sdata` bis `_edata` (RAM), also die Startwerte von `.data`.
+  2. `while (dst < &_ebss) *dst++ = 0;` füllt `_sbss` bis `_ebss` mit Nullen.
+- **Wörter statt Bytes:** Ein Wort (4 Byte) pro Schleifendurchlauf heißt
+  viermal weniger Durchläufe. Der Cortex-M3 kopiert ein Wort mit einem
+  einzigen `ldr`/`str` genauso schnell wie ein Byte. Das geht nur, weil
+  `. = ALIGN(4);` **vor und hinter** `.data` und `.bss` im Linker-Script
+  steht: Anfang und Ende liegen dann garantiert auf einer durch 4 teilbaren
+  Adresse. Die Schleife trifft `_edata` bzw. `_ebss` exakt, schreibt also
+  kein Byte zu viel und vergisst keines.
+- **`__libc_init_array()`** ruft alle Funktionszeiger aus
+  `.preinit_array`, `_init()` und `.init_array` auf. Dort trägt der Compiler
+  die **Konstruktoren globaler C++-Objekte** ein (Bonus 1). In diesem Build
+  stehen dort nur zwei Einträge der C-Bibliothek:
+
+  ```text
+  (gdb) x/2a &__init_array_start
+  0x8000e24: 0x8000bb9 <register_fini>  0x800016d <frame_dummy>
+  ```
+
+  (`register_fini` meldet die Destruktoren für `exit()` an, `frame_dummy`
+  stammt aus `crtstuff.c` der Toolchain. Die ungeraden Adressen sind das
+  Thumb-Bit, siehe Teil 1.3.)
+
+  Der Aufruf **muss nach** dem Kopieren und Nullen stehen: Ein Konstruktor
+  darf globale Variablen lesen und beschreiben. Liefe er vorher, würde er
+  Müll lesen, und seine Ergebnisse in `.bss` würden vom Nullen gleich wieder
+  überschrieben.
+- **Wenn `main` zurückkehrt:** Die CPU landet in `while (1) {}` am Ende von
+  `Reset_Handler` (`0x0800_0664: nop; b.n 0x8000664`). Es gibt kein
+  Betriebssystem, an das man zurückkehren könnte. Die Schleife verhindert,
+  dass die CPU in beliebigen Flash-Inhalt hinter der Funktion weiterläuft.
+- **`Default_Handler`** ist ebenfalls nur eine Endlosschleife. Alle
+  `*_Handler`/`*_IRQHandler` sind mit
+  `__attribute__((weak, alias("Default_Handler")))` deklariert:
+  - `alias`: Der Name ist nur ein zweiter Name für dieselbe Funktion, also
+    dieselbe Adresse.
+  - `weak`: Definiert eine andere Datei eine Funktion mit **demselben Namen**
+    (eine „starke“ Definition), nimmt der Linker diese und verwirft den Alias.
+    Gibt es keine, bleibt der Alias auf `Default_Handler`.
+
+  Tritt ein Interrupt ohne eigenen Handler auf, springt die CPU in
+  `Default_Handler` und **hängt dort für immer**. Kein Absturz, keine
+  Meldung, das Programm steht einfach. In GDB erkennt man das an
+  `info symbol $pc` → `Default_Handler`. Welche Exception es war, steht in
+  den unteren 9 Bit von xPSR: `print $xpsr & 0x1ff` (Exception-Nummer,
+  z. B. 3 = HardFault, 15 = SysTick, ab 16 = IRQ 0, 1, …).
+
+**5.3 Reset-Handler im Maschinencode** (`disassemble /s Reset_Handler`,
+gekürzt):
+
+```text
+136	{
+=> 0x0800061c <+0>:	push	{r7, lr}
+   0x0800061e <+2>:	sub	sp, #8
+   0x08000620 <+4>:	add	r7, sp, #0
+138	    uint32_t *src = &_sidata;
+   0x08000622 <+6>:	ldr	r3, [pc, #68]	@ (0x8000668 <Reset_Handler+76>)
+   0x08000624 <+8>:	str	r3, [r7, #4]
+...
+142	        *dst++ = *src++;
+   0x08000638 <+28>:	ldr	r2, [r2, #0]
+   0x0800063a <+30>:	str	r2, [r3, #0]
+141	    while (dst < &_edata) {
+   0x0800063c <+32>:	ldr	r3, [r7, #0]
+   0x0800063e <+34>:	ldr	r2, [pc, #48]	@ (0x8000670 <Reset_Handler+84>)
+   0x08000640 <+36>:	cmp	r3, r2
+   0x08000642 <+38>:	bcc.n	0x800062c <Reset_Handler+16>
+...
+152	    __libc_init_array();
+   0x0800065c <+64>:	bl	0x8000b68 <__libc_init_array>
+155	    (void)main();
+   0x08000660 <+68>:	bl	0x8000570 <main()>
+157	    while (1) {
+   0x08000664 <+72>:	nop
+   0x08000666 <+74>:	b.n	0x8000664 <Reset_Handler+72>
+   0x08000668 <+76>:	lsrs	r0, r6, #24      <- keine Befehle!
+   ...
+```
+
+Beobachtungen:
+
+- **Erste Instruktion `push {r7, lr}`:** Der Reset-Handler benutzt sofort den
+  Stack. Das geht nur, weil die **Hardware** den SP schon vor der ersten
+  Instruktion aus Wort 0 der Vektortabelle geladen hat (`sp = 0x20005000`).
+- **Debug-Build:** `src` und `dst` liegen nicht in Registern, sondern im
+  Stack-Frame (`[r7, #4]`, `[r7, #0]`). Jeder Durchlauf lädt und speichert sie
+  neu. Mit `-O2` wären es ein paar Register-Befehle.
+- **Schleife „rückwärts“:** `b.n` springt zuerst zur Bedingung (`+32`), der
+  Rumpf (`+16` … `+30`) steht davor. `bcc` („branch if carry clear“) ist der
+  vorzeichenlose Vergleich `dst < &_edata`.
+- **Literal-Pool:** Ab `+76` stehen keine Befehle, sondern Daten. Ein
+  Thumb-Befehl kann keine 32-Bit-Konstante enthalten, deshalb legt der
+  Compiler die Adressen hinter die Funktion und lädt sie mit
+  `ldr r3, [pc, #68]`. Der Disassembler versucht sie trotzdem als Befehle zu
+  lesen (`lsrs r0, r6, #24`). Als Daten betrachtet sind es genau die
+  Linker-Symbole:
+
+  ```text
+  (gdb) x/5wx (char*)Reset_Handler + 76
+  0x8000668 <Reset_Handler+76>:	0x08000e30	0x20000000	0x20000158	0x20000158
+  0x8000678 <Reset_Handler+92>:	0x20000470
+                                _sidata     _sdata      _edata      _sbss       _ebss
+  ```
+
+**5.4 Experiment.** Nach `monitor sysbus.cpu Reset` steht die CPU auf der
+ersten Instruktion:
+
+```text
+sp             0x20005000          0x20005000
+pc             0x800061c           0x800061c <Reset_Handler>
+Reset_Handler in section .text
+
+(gdb) x/wx $pdata
+0x20000000 <..g_data_counterE>:	0x1234567e      <- Rest vom vorherigen Lauf
+(gdb) x/wx $pbss
+0x20000174 <..g_bss_counterE>:	0x00000006      <- Rest vom vorherigen Lauf
+(gdb) set var *$pbss = 0xDEADBEEF
+(gdb) x/wx &_sidata
+0x8000e30:	0x12345678                       <- Startwert im Flash
+```
+
+Direkt nach dem Start von Renode sind beide Werte `0`; nach jedem weiteren
+Reset steht dort, was der vorige Lauf hinterlassen hat (hier hatte `main`
+schon einige Male gezählt). Damit der Watchpoint den Kopiervorgang sicher
+sieht, setzt das Skript `g_data_counter` vorher noch auf `0`.
+
+```text
+(gdb) watch *$pdata
+(gdb) continue
+Hardware watchpoint 2: *$pdata
+Old value = 0
+New value = 305419896                        <- 0x12345678
+Reset_Handler () at .../startup_stm32f103rb.c:141
+141	    while (dst < &_edata) {
+(gdb) x/i $pc
+=> 0x800063c <Reset_Handler+32>:	ldr	r3, [r7, #0]
+
+(gdb) watch *$pbss
+(gdb) continue
+Old value = 3735928559                       <- 0xDEADBEEF
+New value = 0
+Reset_Handler () at .../startup_stm32f103rb.c:147
+147	    while (dst < &_ebss) {
+
+(gdb) tbreak main
+(gdb) continue
+(gdb) print/x *$pdata   -> 0x12345678
+(gdb) print/x *$pbss    -> 0x0
+```
+
+**Fragen:**
+
+- **5.1** Direkt nach dem Reset: `0x1234_567E` (Rest vom vorigen Lauf; nach
+  frischem Renode-Start `0`). Bei `main`: `0x1234_5678`. Der Startwert steht
+  im **Flash** an `_sidata` = `0x0800_0E30` (LMA von `.data`) und wird von
+  der ersten Schleife ins RAM kopiert. Er ist das **erste** Wort, weil
+  `g_data_counter` die erste Variable in `.data` ist (`0x2000_0000`).
+- **5.2** `g_bss_counter` ist `0`, obwohl `0xDEADBEEF` darin stand. Genullt
+  hat ihn die **zweite Schleife** in `Reset_Handler` (`*dst++ = 0;`,
+  Zeile 148). Das ist die Garantie von C/C++ „globale Variablen ohne
+  Initialwert sind 0“. Sie gilt also nur, weil der Startup-Code sie
+  einlöst.
+- **5.3** Beide Watchpoints halten in `Reset_Handler`, wie erwartet. GDB
+  meldet Zeile 141 bzw. 147 (die Schleifenbedingung), geschrieben hat aber
+  die Zeile **davor**: `*dst++ = *src++;` (142) bzw. `*dst++ = 0;` (148).
+  Grund: Ein Hardware-Watchpoint meldet sich **nach** dem schreibenden
+  Befehl (`str r2, [r3, #0]` bei `+30`). Der PC zeigt dann schon auf den
+  nächsten Befehl (`+32`), und der gehört zur Schleifenbedingung.
+  `bt` zeigt nur `#0 Reset_Handler`: Es gibt noch keinen Aufrufer, die
+  Hardware selbst hat hierher gesprungen.
+- **5.4** `_edata - _sdata` = 344 Byte = **86 Wörter**. Davon gehört nur
+  **ein** Wort uns:
+
+  ```text
+  20000000 00000004 d (anonymous namespace)::g_data_counter
+  20000004 00000004 D rcc_ahb_frequency      <- libopencm3
+  20000008 00000004 D rcc_apb2_frequency     <- libopencm3
+  2000000c 00000004 D rcc_apb1_frequency     <- libopencm3
+  20000010 00000004 D _impure_ptr            <- newlib
+  20000018 00000140 D _impure_data           <- newlib, 320 Byte
+  ```
+
+  (`0x2000_0014` bis `0x2000_0017` ist eine Lücke, weil `_impure_data` auf
+  8 Byte ausgerichtet ist.) Den Löwenanteil belegt `_impure_data`: die
+  `struct _reent` von newlib mit `errno`, den `stdio`-Zeigern usw.
+  
+  `.data` ist so klein, weil dort nur Variablen landen, die **veränderbar**
+  sind **und** einen Startwert **ungleich 0** haben. Konstanten gehen nach
+  `.rodata` (Flash), mit 0 initialisierte Variablen nach `.bss` (kostet
+  keinen Flash). `.data` ist das teuerste Segment: Es belegt **RAM und
+  Flash** (für die Startwerte) und kostet beim Start Kopierzeit. Deshalb
+  lohnt es sich, Startwerte nur zu vergeben, wo sie wirklich nötig sind.
+- **5.5** `main.cpp` überschreibt **`SysTick_Handler`** mit einer eigenen
+  Funktion (`extern "C" void SysTick_Handler(void)`, zählt `system_millis`
+  hoch). Alle anderen 51 Handler bleiben schwache Aliase auf
+  `Default_Handler`:
+
+  ```text
+  (gdb) print &HardFault_Handler   -> 0x800067c <Default_Handler>
+  (gdb) print &USART2_IRQHandler   -> 0x800067c <Default_Handler>
+  (gdb) print &SysTick_Handler     -> 0x800018c <(anonymous namespace)::SysTick_Handler()>
+  $ arm-none-eabi-nm build/debug/stm32f103rb-app | grep -c " W .*Handler$"
+  51
+  (gdb) x/wx 0x0800003c            -> 0x0800018d   (Vektor 15 = SysTick, +1 = Thumb-Bit)
+  ```
+
+  Das `extern "C"` ist entscheidend: Ohne es würde der C++-Compiler den
+  Namen „manglen“ (z. B. `_ZN12_GLOBAL__N_115SysTick_HandlerEv`), der Linker
+  fände keine starke Definition namens `SysTick_Handler`, und SysTick liefe
+  stillschweigend in `Default_Handler`. `extern "C"` sorgt dafür, dass das
+  Symbol trotz anonymem Namespace exakt `SysTick_Handler` heißt
+  (`nm`: `T SysTick_Handler`). Dass GDB es als
+  `(anonymous namespace)::SysTick_Handler()` anzeigt, liegt nur an den
+  Debug-Infos.
+
+  Vorsicht beim Nachprüfen mit `info symbol HardFault_Handler`: GDB
+  antwortet `WWDG_IRQHandler in section .text`. Kein Fehler, an
+  `0x0800_067C` liegen eben über 50 Namen, und `info symbol` nennt
+  irgendeinen davon.
