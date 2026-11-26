@@ -34,7 +34,6 @@ SECTIONS
     KEEP(*(.init))
     KEEP(*(.fini))
     *(.text*)
-    *(.rodata*)
     *(.glue_7)
     *(.glue_7t)
     *(.eh_frame*)
@@ -56,6 +55,16 @@ SECTIONS
 
     . = ALIGN(4);
     _etext = .;
+  } > FLASH
+
+  /* Bonus 6: Konstanten (const globals, String-Literale) in einem eigenen
+   * Ausgabe-Abschnitt, weiterhin im Flash.
+   */
+  .rodata :
+  {
+    . = ALIGN(4);
+    *(.rodata*)
+    . = ALIGN(4);
   } > FLASH
 
   /* Exception unwinding tables emitted by compiler/runtime. */

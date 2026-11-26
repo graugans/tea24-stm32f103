@@ -1556,3 +1556,441 @@ ganz anderen Stelle.
 | `info registers` | Zeigt die CPU-Register (r0–r12, sp, lr, pc, xpsr) mit ihren aktuellen Werten. |
 | `bt` | Zeigt die Aufrufkette (Backtrace) von der aktuellen Funktion zurück bis `main`, rekonstruiert aus den gesicherten `lr`-Werten. |
 | `watch` | Setzt einen (Hardware-)Watchpoint: Die CPU hält an, sobald sich der Wert einer Variable oder Speicherstelle ändert, egal welcher Code schreibt. |
+
+---
+
+## Extended (Bonus)
+
+> **Dauerhafte Änderungen:** Bonus 1 (globales Objekt `g_probe` in
+> `main.cpp`) und Bonus 6 (eigener `.rodata`-Abschnitt in
+> `ld/stm32f103rb.ld`) bleiben in der Lösung. Bonus 2 (HardFault) baut
+> `__builtin_trap()` nur vorübergehend ein. Dadurch verschieben sich erneut
+> einige Adressen gegenüber Teil 8 (z. B. `main` `0x0800_05E4`,
+> `kRodataBanner` `0x0800_1568`, `_heap_start` `0x2000_08E0`). Alle Skripte
+> aus [gdb/](gdb/) laufen auch mit diesem Endstand.
+
+### Bonus 1: Globale Objekte und Konstruktoren
+
+Demo: [gdb/bonus1.gdb](gdb/bonus1.gdb)
+
+`g_ctor_ran`, `struct Probe` und `g_probe` stehen wie vorgegeben in
+[src/main.cpp](../src/main.cpp) (vor dem anonymen Namespace).
+
+```text
+(gdb) x/3a &__init_array_start
+0x8001750:  0x800149d <register_fini>  0x800016d <frame_dummy>  0x80006c9 <_GLOBAL__sub_I_g_heap_ptr()>
+(gdb) print (char*)&__preinit_array_end - (char*)&__preinit_array_start   -> 0
+(gdb) print (char*)&__init_array_end - (char*)&__init_array_start         -> 12
+
+(gdb) set var g_ctor_ran = 0x55          (Halt auf *Reset_Handler)
+(gdb) break Probe::Probe
+(gdb) continue
+Breakpoint 2, Probe::Probe (this=0x2000058c <g_probe>) at .../main.cpp:21
+(gdb) bt
+#0  Probe::Probe (this=0x2000058c <g_probe>) at .../main.cpp:21
+#1  0x080006be in __static_initialization_and_destruction_0 () at .../main.cpp:24
+#2  0x080006d0 in _GLOBAL__sub_I_g_heap_ptr () at .../main.cpp:251
+#3  0x08000c7a in __libc_init_array () at .../newlib/libc/misc/init.c:45
+#4  0x08000718 in Reset_Handler () at .../startup_stm32f103rb.c:152
+(gdb) print g_ctor_ran   -> 0       (.bss schon genullt, Konstruktor noch nicht gelaufen)
+(gdb) tbreak main
+(gdb) continue
+(gdb) print g_ctor_ran   -> 1
+(gdb) info symbol &g_probe
+g_probe in section .bss
+```
+
+- **Wer ruft den Konstruktor auf?** `Reset_Handler` → `__libc_init_array`
+  → `_GLOBAL__sub_I_g_heap_ptr` → `__static_initialization_and_destruction_0`
+  → `Probe::Probe`. Der Compiler erzeugt pro Übersetzungseinheit eine
+  Initialisierungsfunktion `_GLOBAL__sub_I_<erstes globales Symbol>` (hier
+  heißt sie nach `g_heap_ptr`, der ersten globalen Variable in `main.cpp`)
+  und trägt **einen Zeiger darauf** in `.init_array` ein.
+  `__libc_init_array` läuft die Liste der Reihe nach ab.
+- **Wo steht die Liste?** Im **Flash**, im Ausgabe-Abschnitt `.text`
+  zwischen `__init_array_start` (`0x0800_1750`) und `__init_array_end`
+  (`0x0800_175C`): drei Funktionszeiger mit gesetztem Thumb-Bit. Vor
+  Bonus 1 waren es zwei (Teil 5.3). `.preinit_array` ist leer
+  (`__preinit_array_start` = `__preinit_array_end`). Das Linker-Script
+  sammelt die Einträge mit `KEEP(*(.init_array*))`. Das `KEEP` verhindert,
+  dass `--gc-sections` die Liste wegwirft, denn kein Code referenziert sie
+  direkt.
+- **`g_probe` selbst** liegt in `.bss` (`0x2000_058C`, 1 Byte, die
+  Struktur hat keine Datenelemente). Der Speicher wird vom Startup-Code
+  genullt, **danach** läuft der Konstruktor darauf. Genau deshalb steht
+  `__libc_init_array()` hinter den beiden Schleifen.
+- **Ohne diesen Schritt** würde kein Konstruktor eines globalen Objekts
+  laufen: `g_ctor_ran` bliebe `0`, und jedes globale Objekt (z. B. ein
+  `std::string`, ein Treiberobjekt, das im Konstruktor Hardware einrichtet)
+  wäre nur genullter Speicher, also in einem ungültigen Zustand. Der Fehler
+  bliebe zunächst unbemerkt (kein Absturz beim Start) und zeigte sich erst
+  bei der Benutzung des Objekts.
+
+### Bonus 2: Interrupts und der Exception-Stack-Frame
+
+Demo: [gdb/bonus2.gdb](gdb/bonus2.gdb), Zusatz HardFault:
+[gdb/bonus2_hardfault.gdb](gdb/bonus2_hardfault.gdb)
+
+Der Breakpoint liegt auf der **ersten Instruktion** (`break *SysTick_Handler`),
+damit `$sp` genau auf den Exception-Frame zeigt. Mit `break SysTick_Handler`
+(hinter dem Prolog) läge noch das von `push {r7}` gesicherte Wort davor.
+
+```text
+(gdb) break *SysTick_Handler
+(gdb) continue
+Breakpoint 3, (anonymous namespace)::SysTick_Handler () at .../main.cpp:80
+(gdb) bt
+#0  (anonymous namespace)::SysTick_Handler () at .../main.cpp:80
+#1  <signal handler called>
+#2  0x00000000 in ?? ()
+(gdb) info registers lr pc sp xpsr
+lr             0xfffffff9          4294967289
+pc             0x8000200           0x8000200 <SysTick_Handler()>
+sp             0x20004fb0          0x20004fb0
+xpsr           0x2100000f          553648143
+(gdb) x/8wx $sp
+0x20004fb0:     0x000001f4      0x0000000a      0x000001f6      0x00000002
+0x20004fc0:     0x00000fff      0x08000687      0x080005ca      0x21008c00
+(gdb) info symbol 0x080005ca
+(anonymous namespace)::delay_ms(unsigned long) + 30 in section .text
+```
+
+| Offset | Register | Wert | Bedeutung |
+| --- | --- | --- | --- |
+| `SP+0x00` | `r0` | `0x1F4` | 500 = Argument `delay` von `delay_ms` |
+| `SP+0x04` | `r1` | `0x0A` | |
+| `SP+0x08` | `r2` | `0x1F6` | 502 = `target` in `delay_ms` |
+| `SP+0x0C` | `r3` | `0x02` | Zwischenwert der Schleife (vermutlich `system_millis`) |
+| `SP+0x10` | `r12` | `0xFFF` | |
+| `SP+0x14` | `lr` | `0x0800_0687` | Rücksprung von `delay_ms` nach `main` (Zeile 240) |
+| `SP+0x18` | `pc` | `0x0800_05CA` | `delay_ms + 30`: **hier wurde unterbrochen** |
+| `SP+0x1C` | `xpsr` | `0x2100_8C00` | Thumb-Bit (24) und Carry-Flag (29) gesetzt, Exception-Nummer 0 (Thread-Modus) |
+
+- **`EXC_RETURN`:** `lr` = `0xFFFF_FFF9` ist keine Adresse, sondern ein
+  Code für die Hardware. Springt der Handler mit `bx lr` dorthin, erkennt die
+  CPU den Sonderwert und führt einen **Exception-Return** aus: Sie holt die
+  acht Wörter vom Stack zurück und macht beim gesicherten `pc` weiter. Die
+  unteren Bits sagen, wohin es zurückgeht:
+
+  | Wert | Rückkehr in | Stack |
+  | --- | --- | --- |
+  | `0xFFFF_FFF1` | Handler-Modus (verschachtelter Interrupt) | MSP |
+  | `0xFFFF_FFF9` | Thread-Modus (normales Programm) | MSP |
+  | `0xFFFF_FFFD` | Thread-Modus | PSP (z. B. RTOS-Task) |
+
+  Hier also: zurück ins normale Programm, Main Stack. Der Handler selbst
+  ist eine ganz normale C-Funktion (`push {r7}` … `pop {r7}`, `bx lr`), weil
+  der Cortex-M die „Aufrufer-Register“ r0–r3, r12, lr bereits gesichert hat.
+- **`xpsr & 0x1ff` = 15** im Handler: die Exception-Nummer von SysTick. GDB
+  zeigt den Exception-Frame im Backtrace als `<signal handler called>`.
+  Weiter kommt der Backtrace nicht (`0x00000000 in ?? ()`), weil der GDB-Server
+  von Renode die M-Profil-Systemregister nicht meldet (Warnung `unable to
+  determine sp alias`).
+- **Wo unterbrochen?** Zehn SysTicks hintereinander trafen **alle**
+  `delay_ms` (`+20` … `+38`). Das Hauptprogramm verbringt praktisch seine
+  ganze Zeit in der Warteschleife `while (system_millis < target)`, alles
+  andere (UART-Ausgabe, LED) ist im Vergleich verschwindend kurz. In Renode
+  rückt der unterbrochene PC dabei jedes Mal um genau einen Befehl weiter:
+  Die Emulation ist deterministisch, zwischen zwei Ticks liegt immer
+  dieselbe Anzahl Instruktionen.
+- **`watch system_millis`:** Geändert wird die Variable nur von
+  `SysTick_Handler` (Halt in `main.cpp:82`, Backtrace wieder
+  `<signal handler called>`), jeweils um 1.
+- **Wie oft pro Sekunde?** Laut Firmware 1000-mal:
+  `systick_set_reload(6000 - 1)` mit `STK_CSR_CLKSOURCE_AHB_DIV8` →
+  48 MHz / 8 / 6000 = 1 kHz. **In Renode sind es aber 12 000-mal:**
+
+  ```text
+  STK_CSR = 0x00010007      <- Bit 2 CLKSOURCE = 1, obwohl die Firmware 0 schreibt
+  STK_RVR = 5999
+  $ grep systickFrequency /opt/renode/platforms/cpus/stm32f103.repl
+      systickFrequency: 72000000
+  ```
+
+  Renode zählt SysTick fest mit 72 MHz und ignoriert sowohl den
+  eingestellten 48-MHz-Takt als auch den Teiler `/8`:
+  72 MHz / 6000 = **12 kHz**. Das bestätigt das Renode-Terminal: Zwischen
+  zwei `tick`-Zeilen (`delay_ms(500)` = 500 Ticks) liegen nur **41,66 ms**
+  virtuelle Zeit statt 500 ms. Auf echter Hardware wären es 1 kHz.
+  (`monitor emulation RunFor` zum Messen funktioniert nicht, solange GDB
+  die Emulation steuert: `This action is not available when emulation is
+  already started`.)
+
+**Fragen:**
+
+- **Zusätzlicher Stack pro Interrupt:** mindestens **32 Byte**
+  Exception-Frame (8 Wörter; ein Cortex-M4F mit FPU-Kontext sogar
+  104 Byte), dazu der Frame des Handlers, hier `push {r7}` = 4 Byte, also
+  **36 Byte**. Der Cortex-M3 richtet den Frame außerdem auf 8 Byte aus
+  (`STKALIGN`), das kann noch einmal 4 Byte Füllung kosten.
+- **Warum einplanen?** Ein Interrupt kann **jederzeit** kommen, auch wenn
+  das Programm gerade an seiner tiefsten Stelle ist (z. B. Ebene 5 von
+  `stackDemo`). Sein Bedarf kommt also **obendrauf** auf das Maximum des
+  Hauptprogramms. Bei mehreren Interrupt-Prioritäten können sich Handler
+  gegenseitig unterbrechen, dann addieren sich ihre Frames. Wer das
+  vergisst, bekommt einen Stack Overflow, der nur selten auftritt, nämlich
+  genau dann, wenn der Interrupt im ungünstigsten Moment kommt. Solche
+  Fehler sind besonders schwer zu finden.
+
+**Zusatz HardFault** (vorübergehend `__builtin_trap();` nach dem
+`stackDemo`-Aufruf):
+
+```text
+$ arm-none-eabi-objdump -d build/debug/stm32f103rb-app | grep udf
+ 8000604:       deff            udf     #255    @ 0xff
+(gdb) break *HardFault_Handler
+(gdb) continue
+Breakpoint 2, Default_Handler () at .../startup_stm32f103rb.c:162
+(gdb) info symbol $pc
+WWDG_IRQHandler in section .text            <- einer der 51 Alias-Namen (Teil 5.5)
+(gdb) print $xpsr & 0x1ff  -> 3              (HardFault)
+(gdb) x/8wx $sp
+0x20004fc8:     0x00000096      0x20000590      0x200005a8      0x00000096
+0x20004fd8:     0x00000fff      0x080001e9      0x08000604      0x01000000
+(gdb) x/i 0x08000604
+   0x8000604 <main()+88>:       udf     #255    @ 0xff
+CFSR = 0x00010000  (UFSR Bit 16 UNDEFINSTR)
+HFSR = 0x40000000  (Bit 30 FORCED)
+```
+
+Renode löst den HardFault korrekt aus. `__builtin_trap()` erzeugt `udf`
+(„permanently undefined“). Die CPU kann den Befehl nicht ausführen und
+erzeugt eine **UsageFault** (`CFSR.UNDEFINSTR`). Weil die UsageFault
+nach dem Reset nicht freigeschaltet ist (`SCB->SHCSR`), wird sie zur
+**HardFault eskaliert** (`HFSR.FORCED`). Der gesicherte `pc` im
+Exception-Frame zeigt genau auf den schuldigen Befehl (`main + 88`), und
+`r0` = `0x96` = 150 ist noch das Ergebnis von `stackDemo`. Der SP
+(`0x2000_4FC8`) liegt genau 32 Byte unter dem SP von `main`
+(`0x2000_4FE8`). Danach hängt die CPU für immer in der Endlosschleife von
+`Default_Handler`. Das ist die typische Fehlersuche auf Cortex-M: Halt im
+Fault-Handler → `x/8wx $sp` → gesicherten `pc` auflösen → Fault-Register
+lesen.
+
+### Bonus 3: Debug- gegen Release-Build
+
+Demo: [gdb/bonus3_release.resc](gdb/bonus3_release.resc) (Renode mit der
+Release-ELF, Kopie von `renode/nucleo.resc` mit anderem Pfad) und
+[gdb/bonus3.gdb](gdb/bonus3.gdb)
+
+```sh
+cmake --preset release
+cmake --build --preset release
+renode --disable-xwt --console excercise-000/gdb/bonus3_release.resc
+gdb-multiarch -x excercise-000/gdb/bonus3.gdb build/release/stm32f103rb-app
+```
+
+Der Release-Build übersetzt `main.cpp` mit **`-O3` und ohne `-g`**
+(`compile_commands.json`). GDB kennt dort also nur die ELF-Symbole, keine
+Variablen und keine Zeilennummern (`info line main` → `No line number
+information`). `print depth` meldet `No symbol "depth" in current context`.
+Man muss mit Registern und Speicher arbeiten.
+
+```text
+$ arm-none-eabi-size build/debug/stm32f103rb-app build/release/stm32f103rb-app
+   text    data     bss     dec     hex filename
+   5984    1384     888    8256    2040 build/debug/stm32f103rb-app
+   6916    1384     852    9152    23c0 build/release/stm32f103rb-app
+
+$ arm-none-eabi-nm -n -C build/release/stm32f103rb-app | grep stackDemo
+080003b4 T stackDemo(int, int)
+080003ec t stackDemo(int, int) [clone .constprop.1]
+08000410 t stackDemo(int, int) [clone .constprop.0]
+
+(gdb) disassemble 'stackDemo(int, int)'
+   0x080003b4 <+0>:     push    {lr}
+   0x080003b6 <+2>:     add.w   r3, r0, r0, lsl #2
+   0x080003ba <+6>:     sub     sp, #12
+   ...
+   0x080003da <+38>:    bl      0x80003b4 <stackDemo(int, int)>
+   0x080003de <+42>:    ldr     r3, [sp, #4]
+   0x080003e0 <+44>:    add     r0, r3
+   0x080003e2 <+46>:    add     sp, #12
+   0x080003e4 <+48>:    ldr.w   pc, [sp], #4
+
+(gdb) break stackDemo          -> Breakpoint 2 at 0x80003be (3 locations)
+sp=0x20004fb8  r0=536873224  r1=0  in stackDemo(int, int) [clone .constprop.0] + 12
+sp=0x20004fa8  r0=2          r1=5  in stackDemo(int, int) [clone .constprop.1] + 16
+sp=0x20004f98  r0=2          r1=5  in stackDemo(int, int) + 10
+sp=0x20004f88  r0=3          r1=5  in stackDemo(int, int) + 10
+sp=0x20004f78  r0=4          r1=5  in stackDemo(int, int) + 10
+sp=0x20004f68  r0=5          r1=5  in stackDemo(int, int) + 10
+g_stack_result = 150
+```
+
+| Ebene | `&local` Debug | `&local` Release | Differenz Release |
+| --- | --- | --- | --- |
+| 0 | `0x2000_4FDC` | `0x2000_4FBC` | – |
+| 1 | `0x2000_4FC4` | `0x2000_4FAC` | −16 |
+| 2 | `0x2000_4FAC` | `0x2000_4F9C` | −16 |
+| 3 | `0x2000_4F94` | `0x2000_4F8C` | −16 |
+| 4 | `0x2000_4F7C` | `0x2000_4F7C` | −16 |
+| 5 | `0x2000_4F64` | `0x2000_4F6C` | −16 |
+
+- **Frame-Größe:** **16 statt 24 Byte.** `push {lr}` (4) + `sub sp, #12`
+  (12). Es gibt keinen Frame Pointer `r7` mehr, und `depth`/`maxDepth`
+  bleiben in `r0`/`r1`, statt im Frame gespeichert zu werden. Im Frame
+  liegen nur noch `lr`, `local` (bei `sp + 4`, wegen `volatile` muss es im
+  Speicher liegen) und Füllung für die 8-Byte-Ausrichtung. Sechs Ebenen
+  brauchen 96 statt 144 Byte.
+- **Der Compiler spezialisiert:** Weil `main` immer `stackDemo(0, 5)` ruft,
+  erzeugt `-O3` zwei **Klone mit festen Argumenten** (`.constprop`):
+  `.constprop.0` ist Ebene 0 (`local = 0` als Konstante), `.constprop.1` ist
+  Ebene 1 (`movs r4, #10`, ruft direkt `stackDemo(2, 5)`). Erst ab Ebene 2
+  läuft die allgemeine Version. `break stackDemo` setzt deshalb **drei**
+  Breakpoints. Beim ersten Halt ist `r0` Müll (536873224 = `0x2000_0908`,
+  ein Rest aus `main`), weil der Klon kein `depth`-Argument mehr hat. Auch
+  `print_memory_layout`, `heap_demo` und `delay_ms` existieren nicht mehr
+  als Funktionen: Sie sind in `main` hineinkopiert (Inlining). Deshalb ist
+  der Release-Code sogar **größer** (6916 statt 5984 Byte `.text`) und der
+  Stack bis Ebene 0 tiefer (`main` hat die lokalen Variablen der
+  eingebetteten Funktionen übernommen).
+- **`next`/`finish` verwirrend:** Ohne Zeileninformation weiß GDB nicht, wo
+  eine „Zeile“ endet. `next` meldet `Single stepping until exit from
+  function _Z9stackDemoii, which has no line number information.` und läuft
+  bis zum Rücksprung. In diesem Fall lief es in einem Schritt durch die
+  komplette restliche Rekursion (Ebenen 2 bis 5) und landete in
+  `.constprop.1`. Auch **mit** `-g` springen optimierte Programme beim
+  Einzelschritt hin und her (der Compiler hat Befehle umsortiert und
+  zusammengelegt), Variablen sind `<optimized out>` (sie leben nur kurz in
+  einem Register), und eingebettete Funktionen haben keinen eigenen Frame.
+- **Tail-Call?** **Nein.** Die Rekursion bleibt ein echtes
+  `bl 0x80003b4 <stackDemo>`. Nach dem Aufruf kommt noch
+  `ldr r3, [sp, #4]; add r0, r3` (`+ local`), der Aufruf steht also nicht
+  am Ende (keine „tail position“). Und weil `local` `volatile` ist, muss
+  jede Ebene ihren eigenen Speicherplatz behalten. Eine echte
+  Tail-Call-Optimierung sähe so aus: `b stackDemo` (Sprung **ohne** Link)
+  statt `bl`, oder gleich eine Schleife ohne Aufruf, und der SP bliebe in
+  allen Ebenen gleich. Ein Beispiel dafür ist `malloc` (Teil 7.3):
+  `b.w _malloc_r`.
+
+### Bonus 4: GDB-Skript statt Handarbeit
+
+Demo: [gdb/stack.gdb](gdb/stack.gdb). Die Skripte `teil*.gdb` dieser Lösung
+sind dieselbe Idee in größer.
+
+```text
+$ gdb-multiarch -batch -x excercise-000/gdb/stack.gdb build/debug/stm32f103rb-app
+depth=0 sp=0x20004fd0
+depth=1 sp=0x20004fb8
+depth=2 sp=0x20004fa0
+depth=3 sp=0x20004f88
+depth=4 sp=0x20004f70
+depth=5 sp=0x20004f58
+Temporary breakpoint 3, gpio_toggle (gpioport=1073809408, gpios=32) at ../common/gpio_common_all.c:89
+fertig: g_stack_result = 150
+```
+
+- **`commands … end`** hängt an den **zuletzt gesetzten** Breakpoint eine
+  Liste von GDB-Befehlen, die bei **jedem** Treffer automatisch ausgeführt
+  wird. `silent` als erster Befehl unterdrückt die normale Halt-Meldung
+  (`Breakpoint 2, stackDemo (depth=…) at …`), das abschließende `continue`
+  lässt die CPU sofort weiterlaufen. So wird aus einem Breakpoint ein
+  **Messpunkt** („Tracepoint“), der das Programm nur kurz anhält.
+- **Zwei Ergänzungen** gegenüber der Vorlage in der README:
+  1. Ein **Reset zu Beginn** (`tbreak *Reset_Handler`,
+     `monitor sysbus.cpu Reset`): `stackDemo` läuft nur einmal, direkt
+     nach dem Start. Ohne Reset findet ein zweiter Lauf nichts mehr.
+  2. Ein **Endpunkt** (`tbreak gpio_toggle`): Ohne ihn läuft das letzte
+     `continue` ewig in der Hauptschleife weiter, und `gdb -batch` kehrt
+     nie zurück.
+- `(unsigned)$sp` ist nötig, weil `$sp` den Typ `void *` hat und `%08x`
+  eine Zahl erwartet.
+- Das Skript liegt in `excercise-000/gdb/` (im Projekt gibt es kein
+  `gdb/`-Verzeichnis im Hauptverzeichnis).
+
+### Bonus 5: Stack-Painting
+
+Demo: [gdb/bonus5.gdb](gdb/bonus5.gdb)
+
+Gemalt wird auf der ersten Instruktion von `Reset_Handler` (SP =
+`_stack_top`), so zählt der Stack von `Reset_Handler` und `main` mit. Wie in
+Teil 5 müssen die Linker-Symbole dort (im C-Code) in GDB-Variablen
+gespeichert werden.
+
+```text
+von 0x20004800 bis 0x20004ffc (2048 Byte)       <- 512 Wörter, dauert ~1 s
+(gdb) tbreak gpio_toggle                         (nach stackDemo(0, 5))
+(gdb) continue
+tiefstes beschriebenes Wort: 0x20004f58
+maximaler Stack-Verbrauch:   168 Byte
+unberuehrt (Reserve):        1880 Byte
+(gdb) x/16wx 0x20004f38
+0x20004f38:     0xaaaaaaaa      0xaaaaaaaa      0xaaaaaaaa      0xaaaaaaaa
+0x20004f48:     0xaaaaaaaa      0xaaaaaaaa      0xaaaaaaaa      0xaaaaaaaa
+0x20004f58:     0x00000005      0x00000005      0xaaaaaaaa      0x00000032
+0x20004f68:     0x20004f70      0x080001e9      0x00000005      0x00000004
+... nach drei weiteren LED-Takten (delay_ms + SysTick):
+maximaler Stack-Verbrauch:   168 Byte
+```
+
+- **Maximaler Verbrauch: 168 Byte.** Die Grenze liegt bei `0x2000_4F58`,
+  dem Frame von `stackDemo` Ebene 5 (`maxDepth = 5`, `depth = 5`,
+  `local = 0x32` = 50, gesicherter `r7`, `lr` = `stackDemo + 61`). Das passt
+  genau zu Teil 6: 24 (bis `main`) + 6 × 24 = 168 Byte. Auch nach
+  mehreren Hauptschleifen-Durchläufen mit SysTick-Interrupts bleibt es bei
+  168 Byte: Ein Interrupt in `delay_ms` braucht nur
+  24 + 24 (`delay_ms`) + 32 + 4 = 84 Byte.
+- **Schöner Nebeneffekt:** Das Wort bei `0x2000_4F60` ist **mitten im
+  Frame** noch `0xAAAAAAAA`. Das ist das Padding-Wort aus Teil 6.3, das nie
+  beschrieben wird. Stack-Painting misst deshalb den Verbrauch an der
+  **tiefsten** Stelle, nicht die Zahl der beschriebenen Wörter.
+- **Grenzen des Verfahrens:** Es misst nur, was in diesem Lauf tatsächlich
+  passiert ist. Ein seltener, tieferer Pfad (Fehlerbehandlung, Interrupt im
+  ungünstigsten Moment) taucht nicht auf. Deshalb mit einer statischen
+  Analyse (`-fstack-usage`, Teil 6.7) und einer Sicherheitsreserve
+  kombinieren. In der Praxis malt der Startup-Code selbst (vor `main`),
+  und ein Diagnose-Befehl oder Watchdog liest den Wasserstand im Betrieb aus.
+  Hier sind 1880 von 2048 Byte nie benutzt worden.
+
+### Bonus 6: `.rodata` in einen eigenen Abschnitt
+
+Demo: [gdb/bonus6.gdb](gdb/bonus6.gdb), Änderung in
+[ld/stm32f103rb.ld](../ld/stm32f103rb.ld): `*(.rodata*)` aus `.text`
+entfernt, neuer Block `.rodata : { . = ALIGN(4); *(.rodata*) . = ALIGN(4); } > FLASH`
+direkt nach `.text`.
+
+```text
+                vorher              nachher
+.isr_vector       236                 236
+.text            5748                5244
+.rodata             –                 504
+.data            1384                1384
+.bss              888                 888
+Total          166366              166366
+.bin-Datei       7368 Byte           7368 Byte
+
+Idx Name          Size      VMA       LMA
+  0 .isr_vector   000000ec  08000000  08000000
+  1 .text         0000147c  080000ec  080000ec
+  2 .rodata       000001f8  08001568  08001568
+  3 .data         00000568  20000000  08001760
+  4 .bss          00000378  20000568  08001cc8
+
+$ arm-none-eabi-nm -C build/debug/stm32f103rb-app | grep kRodataBanner
+08001568 r (anonymous namespace)::kRodataBanner      <- vorher "t"
+(gdb) info symbol 0x08001568
+(anonymous namespace)::kRodataBanner in section .rodata
+```
+
+- **Gesamtgröße:** **unverändert.** `.text` ist genau um die 504 Byte
+  kleiner geworden, die jetzt in `.rodata` stehen, und die `.bin`-Datei hat
+  dieselbe Größe. Es wurde nichts hinzugefügt, nur umsortiert. (Theoretisch
+  kann das `ALIGN(4)` ein paar Byte Füllung kosten, hier war die Grenze
+  schon ausgerichtet.) Innerhalb des Flash liegt `.rodata` jetzt hinter
+  `.init_array`, die Adressen der Konstanten haben sich deshalb verschoben
+  (Banner von `0x0800_1518` nach `0x0800_1568`).
+- **Läuft das Programm?** **Ja, unverändert.** Die Firmware meldet im
+  Renode-Terminal `kRodataBanner (.rodata): 0x08001568` und gibt den
+  Banner aus, `g_stack_result` ist 150. Für die CPU ist es egal, in welchem
+  Abschnitt eine Adresse im Flash liegt.
+- **VMA = LMA** gilt für `.isr_vector`, `.text` und `.rodata`: Sie werden
+  im Flash ausgeführt bzw. gelesen, genau dort, wo sie geladen werden.
+  **Nicht** bei `.data`: VMA `0x2000_0000` (RAM, Laufzeit), LMA
+  `0x0800_1760` (Flash, Startwerte, `_sidata`). Genau diesen Unterschied
+  überbrückt die Kopierschleife im `Reset_Handler`. `.bss` (und `.noinit`)
+  haben formal auch eine abweichende LMA, belegen im Flash aber nichts
+  (nur `ALLOC`, kein `LOAD`).
+- Nebenbei: `_etext` markiert jetzt das Ende des **Codes** (`0x0800_1568`),
+  nicht mehr das Ende von Code + Konstanten. Der Startup-Code benutzt
+  `_etext` nicht, er nimmt `_sidata` = `LOADADDR(.data)`. Deshalb ist die
+  Änderung gefahrlos.

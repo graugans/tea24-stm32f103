@@ -14,6 +14,15 @@
 #include <cstdlib>
 volatile void* g_heap_ptr;   // landet in .bss
 
+// Bonus 1: globales Objekt mit Konstruktor, wird vor main() konstruiert
+volatile int g_ctor_ran;     // .bss, startet mit 0
+
+struct Probe {
+    Probe() { g_ctor_ran = 1; }
+};
+
+Probe g_probe;               // globales Objekt
+
 // Hier merkt sich jede Rekursionsebene die Adresse ihrer lokalen Variable.
 // Globale Variable ohne Initialwert -> landet in .bss
 volatile std::uintptr_t g_stack_probe[6];

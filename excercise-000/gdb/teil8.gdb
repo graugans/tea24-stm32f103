@@ -16,7 +16,7 @@ continue
 
 echo \n=== Flash: Abschnitte mit VMA (Laufzeit) und LMA (Ladeadresse) ===\n
 shell arm-none-eabi-objdump -h build/debug/stm32f103rb-app | grep -E "Idx|\.isr_vector|\.text|\.data|\.bss|\.noinit"
-echo \nWo beginnt .rodata innerhalb von .text? (Map-Datei)\n
+echo \nWo liegt .rodata? (Map-Datei; bis Bonus 6 innerhalb von .text, danach eigener Abschnitt)\n
 shell grep -A12 -E "^ \*\(\.rodata\*\)" build/debug/stm32f103rb-app.map | grep -E "^ \.rodata|^ +0x0800" | head -6
 
 echo \n=== RAM: Linker-Symbole (im C-Code des Reset_Handler auslesen) ===\n

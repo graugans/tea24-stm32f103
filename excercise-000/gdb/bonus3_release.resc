@@ -1,0 +1,24 @@
+# Bonus 3: Renode mit der RELEASE-ELF starten
+#
+# Bauen (Terminal 3, Projekt-Hauptverzeichnis):
+#   cmake --preset release
+#   cmake --build --preset release
+# Start (Terminal 1, Projekt-Hauptverzeichnis) – statt renode/nucleo.resc:
+#   renode --disable-xwt --console excercise-000/gdb/bonus3_release.resc
+# Danach in Terminal 2:
+#   gdb-multiarch -x excercise-000/gdb/bonus3.gdb build/release/stm32f103rb-app
+#
+# Inhalt wie renode/nucleo.resc, nur der ELF-Pfad ist anders.
+
+using sysbus
+mach create "nucleo"
+machine LoadPlatformDescription @platforms/cpus/stm32f103.repl
+
+machine LoadPlatformDescriptionFromString "button: Miscellaneous.Button @ gpioPortC 13 { IRQ -> gpioPortC@13 }"
+machine LoadPlatformDescriptionFromString "led: Miscellaneous.LED @ gpioPortA 5"
+machine LoadPlatformDescriptionFromString "gpioPortA: { 5 -> led@0 }"
+
+sysbus LoadELF @build/release/stm32f103rb-app
+
+showAnalyzer sysbus.usart2
+machine StartGdbServer 3333

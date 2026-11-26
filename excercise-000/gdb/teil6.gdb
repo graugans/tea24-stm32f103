@@ -64,7 +64,9 @@ echo \n=== 6.3 Frame zerlegen (depth = 2) ===\n
 bt
 disassemble stackDemo
 x/8wx $sp
-info symbol 0x080001c8
+echo Gesicherter lr steht bei $sp + 20, ohne Thumb-Bit:\n
+print/x *(unsigned*)($sp + 20)
+info symbol *(unsigned*)($sp + 20) - 1
 echo Nach "next" ist local gesetzt (vorher stand dort noch alter Stack-Inhalt):\n
 next
 x/8wx $sp
