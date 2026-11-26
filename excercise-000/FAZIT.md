@@ -1359,3 +1359,200 @@ Belegung des Heaps nach `heap_demo` und `malloc(32)`:
 | Wann wird Speicher belegt? | Automatisch beim **Funktionsaufruf** (Frame mit Rücksprungadresse, gesicherten Registern, lokalen Variablen) und bei jedem Interrupt. | Explizit, wenn das Programm **`malloc`/`new`** aufruft, zur Laufzeit in beliebiger Größe. |
 | Wann wird er freigegeben? | Automatisch beim **Rücksprung** (`pop {r7, pc}`), streng in umgekehrter Reihenfolge (LIFO). | Nur explizit mit **`free`/`delete`**, in beliebiger Reihenfolge. Mit diesem `_sbrk` geht nichts an den Heap zurück, freie Blöcke verwendet nur `malloc` selbst wieder. |
 | Typisches Risiko | **Stack Overflow** durch Rekursion, große lokale Arrays oder verschachtelte Interrupts. Er überschreibt lautlos Heap, `.bss` und `.data` (Teil 6.5). Außerdem Pufferüberläufe, die Rücksprungadressen zerstören. | **Speicherlecks** (vergessenes `free`), **Fragmentierung** (genug freier Speicher, aber kein ausreichend großes Stück), **Erschöpfung** (`malloc` liefert `NULL`), Zugriff nach `free`. Dazu kommen schwer vorhersagbare Laufzeit und Speicherverbrauch. Deshalb verbieten viele Embedded-Richtlinien (z. B. MISRA) dynamischen Speicher nach der Initialisierung. |
+
+---
+
+## Teil 8: Das Gesamtbild
+
+Demo: [gdb/teil8.gdb](gdb/teil8.gdb) (gibt alle Werte für beide Karten aus)
+
+Alle Adressen gelten für den **Endstand** der Lösung (mit `stackDemo` aus
+Teil 6 und `malloc` aus Teil 7). Die Firmware gibt dieselben Werte per UART
+aus.
+
+**RAM** (`0x2000_0000` – `0x2000_4FFF`, 20 KiB):
+
+```text
+0x2000_5000  +----------------------------+  <- _stack_top = _estack (Start-SP aus Vektor 0)
+             |  Reset_Handler + main      |     24 Byte, SP in main = 0x2000_4FE8
+             |  stackDemo, Ebene 0 ... 5  |     tiefster gemessener SP = 0x2000_4F58
+             |  Stack (wächst nach UNTEN) |
+             |             |              |
+             |             v              |
+0x2000_4800  +- - - - - - - - - - - - - - +  <- _stack_limit = _heap_end
+             |  (2 KiB Stack-Reserve,     |     _Min_Stack_Size = 0x800, nur eine
+             |   nur Absprache!)          |     Absprache, keine Hardware-Grenze
+             |                            |
+             |  ~~~~ freier Platz ~~~~~~  |     14 336 Byte nie von _sbrk vergeben
+             |             ^              |
+             |             |              |
+0x2000_1000  +- - - - - - - - - - - - - - +  <- current_heap_end (nach malloc, 4-KiB-Grenze)
+             |  Heap (wächst nach OBEN)   |     1 832 Byte: heap_demo 64 Byte,
+             |                            |     malloc-Block 0x2000_0920 (32 Byte + Header),
+             |                            |     Top-Chunk 1 728 Byte
+_heap_start  +----------------------------+  = 0x2000_08D8  (= _end)
+             |  .noinit (0 Byte)          |
+_ebss        +----------------------------+  = 0x2000_08D8
+             |  .bss  (880 Byte)          |     g_bss_counter 0x2000_05A4, g_heap_ptr 0x2000_0584,
+             |                            |     g_stack_probe 0x2000_0588, current_heap_end 0x2000_05CC
+_sbss        +----------------------------+  = 0x2000_0568  (= _edata)
+             |  .data (1 384 Byte)        |     g_data_counter 0x2000_0000, _impure_data,
+             |                            |     __malloc_av_ (1 032 Byte)
+0x2000_0000  +----------------------------+  = _sdata
+```
+
+Zwischen dem Heap-Ende (`0x2000_1000`) und dem tiefsten gemessenen SP
+(`0x2000_4F58`) sind im Normalbetrieb rund **16 KiB frei**. Das Programm
+nutzt sein RAM also bei Weitem nicht aus. Die Grenze `_stack_limit` ist aber
+nur ein Strich auf dem Papier (Teil 6.5).
+
+> Die Adressen einzelner Variablen (z. B. `g_stack_probe` = `0x2000_0588`)
+> gelten nur für genau diesen Build. Die Reihenfolge in `.bss` und `.data`
+> legt der Linker fest, und jede Code-Änderung kann sie verschieben (siehe
+> die Tabelle in Teil 6). Deshalb immer mit `nm -n` oder `info symbol`
+> nachprüfen statt raten.
+
+**Flash** (`0x0800_0000` – `0x0801_FFFF`, 128 KiB), aus
+`arm-none-eabi-objdump -h` und der Map-Datei:
+
+```text
+Idx Name          Size      VMA       LMA
+  0 .isr_vector   000000ec  08000000  08000000
+  1 .text         00001630  080000ec  080000ec
+  2 .data         00000568  20000000  0800171c     <- VMA im RAM, LMA im Flash
+  3 .bss          00000370  20000568  08001c84     <- belegt keinen Flash (Typ NOBITS, nur ALLOC)
+```
+
+```text
+0x0802_0000  +----------------------------+  Ende des Flash (128 KiB)
+             |                            |
+             |  frei (~121 KiB)           |
+             |                            |
+0x0800_1C84  +----------------------------+  Ende des Programms (7 300 Byte belegt)
+             |  Startwerte von .data      |  1 384 Byte, LMA von .data
+             |  (Kopiervorlage für RAM)   |  -> Reset_Handler kopiert nach 0x2000_0000
+0x0800_171C  +----------------------------+  = _sidata = _etext
+             |  .init_array / .fini_array |  12 Byte (register_fini, frame_dummy, ...)
+0x0800_1710  +----------------------------+  = __preinit_array_start
+             |  .rodata (504 Byte)        |  kRodataBanner 0x0800_1518, String-Literale
+             |                            |  0x0800_1550, rcc_hsi_configs 0x0800_16BC
+0x0800_1518  +----------------------------+
+             |  .text: Maschinencode      |  stackDemo 0x0800_018C, main 0x0800_05C4,
+             |  (5 164 Byte)              |  Reset_Handler 0x0800_0694, malloc, ...
+0x0800_00EC  +----------------------------+
+             |  .isr_vector (236 Byte)    |  Wort 0: SP = 0x2000_5000
+             |  59 Vektoren               |  Wort 1: Reset = 0x0800_0695 (Thumb-Bit)
+0x0800_0000  +----------------------------+
+```
+
+Wichtig für das Verständnis:
+
+- `.rodata` ist **kein eigener Ausgabe-Abschnitt**. Das Linker-Script legt
+  `*(.rodata*)` in `.text` (Teil 4.3), deshalb zeigt `objdump -h` keine
+  `.rodata`-Zeile. Ihre Grenzen findet man nur in der Map-Datei.
+- `.data` steht **zweimal** in den Karten: einmal im Flash (LMA
+  `0x0800_171C`, Startwerte) und einmal im RAM (VMA `0x2000_0000`,
+  Laufzeit). `.bss` hat zwar auch eine LMA, belegt im Flash aber nichts. Die
+  `.bin`-Datei endet nach den `.data`-Startwerten.
+- Belegt sind 7 300 Byte Flash (5,6 %) und statisch 2 264 Byte RAM
+  (`.data` + `.bss`, 11 %). Dazu kommen zur Laufzeit Stack und Heap.
+
+---
+
+## Abgabe: Fazit
+
+**1. Wie arbeiten GDB und Renode zusammen? Was macht
+`target remote localhost:3333`?**
+
+Renode emuliert den kompletten Mikrocontroller (CPU, Flash, RAM,
+Peripherie) und stellt mit `machine StartGdbServer 3333` einen
+**GDB-Server** bereit, so wie bei echter Hardware ein Debug-Adapter
+(ST-LINK, J-Link). GDB auf dem Host ist der **Client**: Er kennt aus der
+ELF-Datei Symbole, Typen und Quelltextzeilen, das Target selbst kennt nur
+Adressen. `target remote localhost:3333` baut eine TCP-Verbindung zu diesem
+Server auf. Danach schickt GDB über das **GDB Remote Serial Protocol**
+Befehle wie „Register lesen“, „Speicher lesen/schreiben“, „Breakpoint
+setzen“ und „weiterlaufen“. Die CPU hält beim Verbinden an. Mit
+`monitor ...` reicht GDB Befehle direkt an die Renode-Konsole weiter (z. B.
+`monitor sysbus.cpu Reset`).
+
+**2. Was tut der Startup-Code, bevor `main` läuft? Warum ist das nötig?**
+
+Die Hardware lädt beim Reset nur SP (Vektor 0) und PC (Vektor 1). Danach
+läuft `Reset_Handler`:
+
+1. `.data` vom Flash (`_sidata`) ins RAM (`_sdata` … `_edata`) kopieren,
+2. `.bss` (`_sbss` … `_ebss`) mit Nullen füllen,
+3. `__libc_init_array()` aufrufen (C++-Konstruktoren globaler Objekte),
+4. `main()` aufrufen, danach Endlosschleife.
+
+Nötig ist das, weil das RAM nach dem Einschalten (und nach einem Reset)
+undefinierten Inhalt hat (Teil 5.4: `0xDEADBEEF` bzw. Reste des vorigen
+Laufs). C/C++ garantiert aber, dass `g_data_counter` mit `0x12345678` und
+`g_bss_counter` mit `0` beginnt. Diese Garantie löst der Startup-Code ein.
+Ohne Betriebssystem tut das sonst niemand.
+
+**3. Welche Variablen liegen wo?**
+
+| Variable / Objekt | Adresse (Endstand) | Segment |
+| --- | --- | --- |
+| `g_data_counter` (`= 0x12345678`) | `0x2000_0000` | `.data` (RAM, Startwert im Flash) |
+| `g_bss_counter`, `g_bss_buffer[32]` | `0x2000_05A4`, `0x2000_05A8` | `.bss` |
+| `g_stack_probe[6]`, `g_stack_result`, `g_heap_ptr` | `0x2000_0588`, `0x2000_05A0`, `0x2000_0584` | `.bss` (globale ohne Startwert) |
+| `current_heap_end` (`static` in `_sbrk`) | `0x2000_05CC` | `.bss` |
+| `kRodataBanner` (Text) | `0x0800_1518` | `.rodata` (Flash, im Ausgabe-Abschnitt `.text`) |
+| `main`, `stackDemo` | `0x0800_05C4`, `0x0800_018C` | `.text` (Flash) |
+| `stack_probe` (lokal in `print_memory_layout`) | `0x2000_4FD0` | Stack |
+| `local` in `stackDemo` | `0x2000_4FDC` (Ebene 0) … `0x2000_4F64` (Ebene 5) | Stack |
+| Block von `_sbrk(64)` in `heap_demo` | `0x2000_08D8` | Heap |
+| Block von `malloc(32)` (`*g_heap_ptr`) | `0x2000_0920` | Heap |
+
+Faustregel: veränderbar und Startwert ≠ 0 → `.data`; Startwert 0 oder keiner
+→ `.bss`; `const` → `.rodata`; lokal (nicht `static`) → Stack;
+`malloc`/`new` → Heap. `static` in einer Funktion ändert nur die
+Sichtbarkeit, nicht den Ort: `.bss`/`.data`, nicht Stack.
+
+**4. Wie ist ein Stack-Frame aufgebaut, und warum wächst der Stack nach
+unten?**
+
+Ein Frame (Beispiel `stackDemo`, 24 Byte, von oben nach unten): gesicherte
+Rücksprungadresse `lr` → gesicherter Frame Pointer `r7` → lokale Variablen
+(`local`) → Padding → gesicherte Argumente (`depth`, `maxDepth`). Angelegt
+wird er im Prolog (`push {r7, lr}`, `sub sp, #16`), abgebaut im Epilog
+(`mov sp, r7`, `pop {r7, pc}`, wobei `pop` in den PC der Rücksprung ist).
+Der SP bleibt an Funktionsgrenzen auf 8 Byte ausgerichtet (AAPCS).
+
+Der Stack wächst nach unten, weil die **Architektur** es so festlegt: Der
+Cortex-M benutzt einen „full descending“ Stack. `push` verringert den SP
+zuerst und schreibt dann, und die Hardware selbst legt beim Interrupt die
+Register so ab. Praktischer Vorteil: Stack (von oben) und Heap (von unten)
+wachsen aufeinander zu und teilen sich den freien Platz dazwischen, ohne dass
+man die Aufteilung vorher genau festlegen muss.
+
+**5. Was ist ein Stack Overflow, und warum bleibt er oft unbemerkt?**
+
+Ein Stack Overflow liegt vor, wenn der Stack mehr Platz braucht, als für ihn
+vorgesehen ist (hier 2 KiB bis `_stack_limit`), und in fremde Bereiche
+hineinwächst. In Teil 6.5 hat `stackDemo(0, 2000)` (2000 × 24 Byte ≈ 47 KiB)
+erst den Heap, dann `.bss` und `.data` überschrieben: `g_data_counter`
+enthielt danach `0x20000008` statt `0x12345679`. Unbemerkt bleibt das, weil
+es kein Betriebssystem, keine MMU und auf diesem Chip auch keine MPU gibt.
+Jeder `push` ist ein gültiger RAM-Zugriff, und `_stack_limit` prüft zur
+Laufzeit niemand. Das Programm läuft mit falschen Daten weiter (in Renode
+sogar ganz ohne Fault). Der Fehler zeigt sich erst viel später und an einer
+ganz anderen Stelle.
+
+**6. Die GDB-Befehle in einem Satz:**
+
+| Befehl | Bedeutung |
+| --- | --- |
+| `break` | Setzt einen Haltepunkt auf eine Funktion, Zeile oder (mit `*`) Adresse; die CPU hält an, bevor sie ihn ausführt. |
+| `continue` | Lässt die CPU weiterlaufen, bis ein Breakpoint, Watchpoint oder Ctrl-C sie anhält. |
+| `next` | Führt die aktuelle Quelltextzeile aus und **überspringt** dabei Funktionsaufrufe (sie laufen komplett durch). |
+| `step` | Führt die aktuelle Zeile aus und **springt in** aufgerufene Funktionen hinein. |
+| `finish` | Läuft, bis die aktuelle (oder ausgewählte) Funktion zurückkehrt, und zeigt ihren Rückgabewert. |
+| `x` | Zeigt rohen Speicherinhalt ab einer Adresse in wählbarem Format (`x/8wx $sp`, `x/s`, `x/i`). |
+| `print` | Wertet einen C/C++-Ausdruck aus und zeigt das Ergebnis mit Typ (`print &local`, `print/x $sp`). |
+| `info registers` | Zeigt die CPU-Register (r0–r12, sp, lr, pc, xpsr) mit ihren aktuellen Werten. |
+| `bt` | Zeigt die Aufrufkette (Backtrace) von der aktuellen Funktion zurück bis `main`, rekonstruiert aus den gesicherten `lr`-Werten. |
+| `watch` | Setzt einen (Hardware-)Watchpoint: Die CPU hält an, sobald sich der Wert einer Variable oder Speicherstelle ändert, egal welcher Code schreibt. |
