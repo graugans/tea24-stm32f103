@@ -6,16 +6,16 @@ digraph thumb {
   <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6">
     <TR>
       <TD BORDER="0" ALIGN="RIGHT"><B>Wert in aktion:</B></TD>
-      <TD COLSPAN="2" BORDER="0"><FONT FACE="Courier" POINT-SIZE="14"><B>0x0800 0001</B></FONT></TD>
+      <TD COLSPAN="2" BORDER="0"><FONT FACE="Courier" POINT-SIZE="14"><B>0x0800 0455</B></FONT></TD>
     </TR>
     <TR>
       <TD BORDER="0" ALIGN="RIGHT">Bits:</TD>
-      <TD BGCOLOR="#c6dbef"><FONT FACE="Courier">0000 1000 0000 0000 0000 0000 0000 000</FONT></TD>
+      <TD BGCOLOR="#c6dbef"><FONT FACE="Courier">0000 1000 0000 0000 0000 0100 0101 010</FONT></TD>
       <TD BGCOLOR="#fcbba1"><FONT FACE="Courier"><B>1</B></FONT></TD>
     </TR>
     <TR>
       <TD BORDER="0"></TD>
-      <TD BORDER="0">Bit 31 … 1: Adresse <FONT FACE="Courier">0x0800 0000</FONT><BR/><FONT POINT-SIZE="9">so zeigt sie auch nm an</FONT></TD>
+      <TD BORDER="0">Bit 31 … 1: Adresse <FONT FACE="Courier">0x0800 0454</FONT><BR/><FONT POINT-SIZE="9">so zeigt sie auch nm an</FONT></TD>
       <TD BORDER="0">Bit 0<BR/><B>Thumb-Bit</B></TD>
     </TR>
   </TABLE>>]

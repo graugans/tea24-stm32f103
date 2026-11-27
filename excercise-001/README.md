@@ -220,7 +220,7 @@ dagegen raten, *wohin* der Sprung geht.
 ### Das Thumb-Bit: Funktionszeiger sind ungerade
 
 Lassen Sie sich die Adresse von `motor_hoch` mit `nm` anzeigen. Sie ist
-gerade, z. B. `0x0800 0000`. Im Funktionszeiger steht aber `0x0800 0001`:
+gerade, z. B. `0x0800 0454`. Im Funktionszeiger steht aber `0x0800 0455`:
 
 ![Bit 0 eines Funktionszeigers ist das Thumb-Bit](img/thumb-bit.svg)
 
@@ -316,21 +316,48 @@ Fehlern sicher:
    (`rollladen.cpp`) oder in die Hardwareschicht (`board.cpp`)? Begründen
    Sie Ihre Entscheidung.
 
-4. **Funktionszeiger (für Fortgeschrittene):** Statt nur den Folgezustand
-   kann jede Zelle der Tabelle zusätzlich einen Zeiger auf eine Funktion
-   enthalten, die beim Übergang ausgeführt wird:
+4. **Funktionszeiger (für Fortgeschrittene):** Bisher setzt `main.cpp` den
+   Motor passend zum _Zustand_ (Moore-Automat). Jetzt soll der Motor beim
+   _Übergang_ geschaltet werden (Mealy-Automat). Dazu enthält jede Zelle der
+   Tabelle zusätzlich einen Zeiger auf eine Funktion, die beim Übergang
+   ausgeführt wird:
    ```cpp
    struct Uebergang {
        Zustand folgezustand;
        void (*aktion)();   // z. B. motor_hoch, motor_aus, fehler_melden
    };
    ```
-   Bauen Sie die Tabelle so um (siehe [Hintergrund: Funktionszeiger](#hintergrund-funktionszeiger)).
+   Bauen Sie die Steuerung so um (siehe [Hintergrund: Funktionszeiger](#hintergrund-funktionszeiger)):
+   - Schreiben Sie die Aktionen `motor_hoch()`, `motor_runter()`,
+     `motor_aus()` und `fehler_melden()` in `src/rollladen.cpp`. Sie schalten
+     den Motor über `board_motor_setzen()`, deshalb muss `rollladen.cpp`
+     jetzt `board.h` einbinden.
+   - Wird ein Ereignis ignoriert (Folgezustand = aktueller Zustand), steht
+     in der Zelle `nullptr`: Es gibt nichts zu tun.
+   - `rollladen_naechster_zustand()` ruft die Aktion der Zelle auf, aber nur,
+     wenn sie nicht `nullptr` ist.
+   - Entfernen Sie in `main.cpp` den Aufruf von `board_motor_setzen()`. Ab
+     jetzt schalten nur noch die Aktionen den Motor, sonst würde er doppelt
+     gesetzt. Die Tabelle `motor_je_zustand` brauchen Sie nicht mehr.
+     Achtung beim Einschalten: Der Startzustand „Fährt runter“ wird ohne
+     Übergang erreicht. Wer schaltet jetzt den Motor ein?
+
    Prüfen Sie danach mit `nm`, wo die Tabelle liegt, einmal mit und einmal
    ohne `const`. Stimmt der Wert im Zeiger mit der Adresse aus `nm` überein?
-5. **NULL ausprobieren:** Tragen Sie in einer Zelle `nullptr` als Aktion ein
-   und lösen Sie den Übergang in Renode aus. Wo bleibt der Prozessor stehen?
-   Finden Sie es mit GDB heraus (`bt`, `info registers pc`).
+   Laufen die Robot-Tests noch?
+
+   > **Zum Nachdenken:** Mit `#include "board.h"` kennt `rollladen.cpp` nun
+   > die Hardware. Die saubere Trennung aus dem Abschnitt [Der Code](#der-code)
+   > ist damit aufgegeben: Die Logik lässt sich nicht mehr ohne `board.cpp`
+   > auf dem PC testen. Wie könnte man das vermeiden? Ein Hinweis: Wer muss
+   > wissen, _was_ `motor_hoch()` tut, und wer nur, _dass_ es die Funktion
+   > gibt?
+5. **NULL ausprobieren:** Entfernen Sie testweise die Prüfung auf `nullptr`
+   aus `rollladen_naechster_zustand()`. Lösen Sie dann in Renode ein
+   ignoriertes Ereignis aus, z. B. „Taste runter“ im Zustand „Unten“. Wo
+   bleibt der Prozessor stehen? Finden Sie es mit GDB heraus (`bt`,
+   `info registers pc`). Welche Zeile im Backtrace verrät den Sprung an die
+   Adresse 0?
 
 > **Tipp:** Die Übergangstabelle muss nach jeder Erweiterung vollständig
 > sein: eine Zeile je Zustand, eine Spalte je Ereignis. Fehlt ein Eintrag,

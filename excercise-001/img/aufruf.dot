@@ -10,7 +10,7 @@ digraph aufruf {
     direkt [label=<
       <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
         <TR><TD ALIGN="LEFT"><B>direkt()</B></TD></TR>
-        <TR><TD ALIGN="LEFT" PORT="bl" BGCOLOR="#c7e9c0"><FONT FACE="Courier">bl  0x08000000</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" PORT="bl" BGCOLOR="#c7e9c0"><FONT FACE="Courier">bl  0x08000454</FONT></TD></TR>
       </TABLE>>]
     indirekt [label=<
       <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
@@ -20,7 +20,7 @@ digraph aufruf {
       </TABLE>>]
     ziel [label=<
       <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
-        <TR><TD ALIGN="LEFT" PORT="kopf"><B>motor_hoch()</B>  <FONT FACE="Courier" POINT-SIZE="9">0x0800 0000</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" PORT="kopf"><B>motor_hoch()</B>  <FONT FACE="Courier" POINT-SIZE="9">0x0800 0454</FONT></TD></TR>
         <TR><TD ALIGN="LEFT"><FONT FACE="Courier">...</FONT></TD></TR>
         <TR><TD ALIGN="LEFT"><FONT FACE="Courier">bx  lr</FONT></TD></TR>
       </TABLE>>]
@@ -31,7 +31,7 @@ digraph aufruf {
     zeiger [shape=plaintext label=<
       <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
         <TR><TD ALIGN="LEFT"><B>aktion</B>  <FONT FACE="Courier" POINT-SIZE="9">0x2000 0000</FONT></TD></TR>
-        <TR><TD PORT="wert" BGCOLOR="#fdd0a2"><FONT FACE="Courier">0x0800 0001</FONT></TD></TR>
+        <TR><TD PORT="wert" BGCOLOR="#fdd0a2"><FONT FACE="Courier">0x0800 0455</FONT></TD></TR>
       </TABLE>>]
   }
 
