@@ -24,7 +24,7 @@ Rollladen Einschalten
     Execute Command             machine LoadPlatformDescription @platforms/cpus/stm32f103.repl
     Execute Command             machine LoadPlatformDescription ${REPL}
     Execute Command             sysbus LoadELF ${ELF}
-    Create Terminal Tester      ${UART}  defaultTimeout=2
+    Create Terminal Tester      ${UART}  timeout=2
     ${hoch}=                    Create LED Tester  ${RELAIS_HOCH}  defaultTimeout=0
     ${runter}=                  Create LED Tester  ${RELAIS_RUNTER}  defaultTimeout=0
     Set Test Variable           ${TESTER_HOCH}  ${hoch}

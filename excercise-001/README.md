@@ -10,8 +10,8 @@
 
 ```sh
 git fetch --all
-# neuen lokalen Branch auf Basis der Aufgabe anlegen
-git switch -c solution-001 upstream/exercise-001
+# neuen lokalen Branch auf Basis der Aufgabe (liegt auf main) anlegen
+git switch -c solution-001 upstream/main
 # ... Änderungen ...
 git add excercise-001
 git commit -m "feat: solve exercise-001 roller shutter state machine"
@@ -263,9 +263,19 @@ Fehlern sicher:
    ```sh
    arm-none-eabi-nm -C build/debug/excercise-001/rollladen | grep uebergang
    ```
+   > **Hinweis:** `nm` zeigt die Tabelle mit dem Buchstaben `t` (wie Code),
+   > nicht `r` (wie `.rodata`). Das ist kein Fehler: Unser Linker-Script
+   > `ld/stm32f103rb.ld` legt `.rodata` mit in den Ausgabeabschnitt `.text`.
+   > Entscheidend ist die Adresse: `0x08…` ist Flash, `0x20…` ist RAM.
 2. Entfernen Sie das `const` vor `uebergangstabelle` und bauen Sie neu.
    Was meldet `nm` jetzt? Wie ändert sich die RAM-Belegung, die der Linker am
    Ende ausgibt? Was sagt der CTest? Erklären Sie das Ergebnis.
+   > **Hinweis:** Nutzen Sie dafür den Debug-Build (`--preset debug`). Im
+   > Release-Build (`--preset release`, mit Optimierung) erkennt GCC, dass
+   > niemand in die Tabelle schreibt, und legt sie trotz fehlendem `const`
+   > selbst in den Flash. Probieren Sie es ruhig aus: Warum ist es trotzdem
+   > besser, das `const` hinzuschreiben, statt sich auf den Optimierer zu
+   > verlassen?
 3. `gemeldet` in `src/eingaben.cpp` ist `static`. In welchem Segment liegt
    es, und warum?
 
