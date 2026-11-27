@@ -12,8 +12,8 @@ git status
 git branch -a
 git switch main
 git fetch --all
-# create a new local branch based on exercise-000
-git switch -c solution-000 upstream/exercise-000
+# create a new local branch based on the exercise (it lives on main)
+git switch -c solution-000 upstream/main
 # perform changes
 git add src
 git commit -m "feat: solve exercise-000 stack and memory task"
