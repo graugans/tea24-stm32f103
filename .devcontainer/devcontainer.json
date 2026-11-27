@@ -1,5 +1,7 @@
 {
 	"image": "ghcr.io/graugans/stm32f103:1.1.2",
+	// Graphviz (dot) erzeugt die Grafiken der Übungen, z. B. excercise-001/img/erzeugen.sh
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz",
 	// Configure tool-specific properties.
 	"customizations": {
 		// Configure properties specific to VS Code.
