@@ -1,0 +1,34 @@
+// Rollladensteuerung auf dem Nucleo-F103RB
+// Wird zusätzlich zu platforms/cpus/stm32f103.repl geladen.
+
+// Taster und Endschalter an Port C. "invert: true" heißt aktiv low:
+// Nicht gedrückt liegt 1 am Pin (wie mit Pull-up), gedrückt 0.
+tasteHoch: Miscellaneous.Button @ gpioPortC
+    invert: true
+    -> gpioPortC@0
+
+tasteRunter: Miscellaneous.Button @ gpioPortC
+    invert: true
+    -> gpioPortC@1
+
+endschalterOben: Miscellaneous.Button @ gpioPortC
+    invert: true
+    -> gpioPortC@2
+
+endschalterUnten: Miscellaneous.Button @ gpioPortC
+    invert: true
+    -> gpioPortC@3
+
+// Die Relais K1 und K2 bildet Renode als LEDs nach: an = Relais zieht an.
+relaisHoch: Miscellaneous.LED @ gpioPortB
+
+relaisRunter: Miscellaneous.LED @ gpioPortB
+
+ld2: Miscellaneous.LED @ gpioPortA
+
+gpioPortB:
+    8 -> relaisHoch@0
+    9 -> relaisRunter@0
+
+gpioPortA:
+    5 -> ld2@0

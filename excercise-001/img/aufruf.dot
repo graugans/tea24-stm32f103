@@ -1,0 +1,41 @@
+// Direkter Aufruf und Aufruf über einen Funktionszeiger (Adressen aus arm-none-eabi-gcc -O1)
+digraph aufruf {
+  graph [rankdir=LR bgcolor=white nodesep=0.35 ranksep=0.9 fontname="Helvetica" pad=0.3 newrank=true]
+  node  [fontname="Helvetica" fontsize=11]
+  edge  [fontname="Helvetica" fontsize=10 arrowsize=0.7]
+
+  subgraph cluster_flash {
+    label=<<B>Flash (.text)</B>> style="rounded,filled" fillcolor="#f0f7ff" color="#6baed6"
+    node [shape=plaintext]
+    direkt [label=<
+      <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
+        <TR><TD ALIGN="LEFT"><B>direkt()</B></TD></TR>
+        <TR><TD ALIGN="LEFT" PORT="bl" BGCOLOR="#c7e9c0"><FONT FACE="Courier">bl  0x08000000</FONT></TD></TR>
+      </TABLE>>]
+    indirekt [label=<
+      <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
+        <TR><TD ALIGN="LEFT"><B>indirekt()</B></TD></TR>
+        <TR><TD ALIGN="LEFT" PORT="ldr" BGCOLOR="#fdd0a2"><FONT FACE="Courier">ldr r3, [aktion]</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT" PORT="blx" BGCOLOR="#fdd0a2"><FONT FACE="Courier">blx r3</FONT></TD></TR>
+      </TABLE>>]
+    ziel [label=<
+      <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
+        <TR><TD ALIGN="LEFT" PORT="kopf"><B>motor_hoch()</B>  <FONT FACE="Courier" POINT-SIZE="9">0x0800 0000</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT FACE="Courier">...</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT FACE="Courier">bx  lr</FONT></TD></TR>
+      </TABLE>>]
+  }
+
+  subgraph cluster_ram {
+    label=<<B>RAM (.data)</B>> style="rounded,filled" fillcolor="#fff5eb" color="#fd8d3c"
+    zeiger [shape=plaintext label=<
+      <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="#ffffff">
+        <TR><TD ALIGN="LEFT"><B>aktion</B>  <FONT FACE="Courier" POINT-SIZE="9">0x2000 0000</FONT></TD></TR>
+        <TR><TD PORT="wert" BGCOLOR="#fdd0a2"><FONT FACE="Courier">0x0800 0001</FONT></TD></TR>
+      </TABLE>>]
+  }
+
+  direkt:bl:e -> ziel:kopf:w [color="#31a354" penwidth=1.6 label=<<FONT COLOR="#31a354">Ziel steht im Befehl<BR/>(trägt der Linker ein)</FONT>>]
+  indirekt:ldr:e -> zeiger:wert:w [color="#e6550d" penwidth=1.6 label=<<FONT COLOR="#e6550d">1. Adresse aus dem<BR/>Speicher laden</FONT>>]
+  zeiger:wert:e -> ziel:kopf:e [color="#e6550d" penwidth=1.6 label=<<FONT COLOR="#e6550d">2. dorthin springen</FONT>> constraint=false]
+}

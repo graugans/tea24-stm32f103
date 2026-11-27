@@ -1,0 +1,47 @@
+// Die Anlage: Eingänge, Nucleo, Relais, Motor
+digraph anlage {
+  graph [rankdir=LR bgcolor=white nodesep=0.25 ranksep=0.7 fontname="Helvetica" pad=0.3]
+  node  [fontname="Helvetica" fontsize=11]
+  edge  [fontname="Helvetica" fontsize=10 arrowsize=0.7]
+
+  subgraph cluster_ein {
+    label=<<B>Eingänge</B><BR/><FONT POINT-SIZE="9">aktiv low, Pull-up</FONT>> style="rounded,filled" fillcolor="#f0f7ff" color="#6baed6"
+    node [shape=box style="rounded,filled" fillcolor="#c6dbef"]
+    th [label="Taste hoch"]
+    tr [label="Taste runter"]
+    eo [label="Endschalter oben"]
+    eu [label="Endschalter unten"]
+  }
+
+  mcu [shape=plaintext label=<
+    <TABLE BORDER="2" COLOR="#31a354" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#e5f5e0">
+      <TR><TD COLSPAN="2"><B>Nucleo-F103RB</B></TD></TR>
+      <TR><TD PORT="pc0" ALIGN="LEFT">PC0</TD><TD PORT="pb8" ALIGN="RIGHT">PB8</TD></TR>
+      <TR><TD PORT="pc1" ALIGN="LEFT">PC1</TD><TD PORT="pb9" ALIGN="RIGHT">PB9</TD></TR>
+      <TR><TD PORT="pc2" ALIGN="LEFT">PC2</TD><TD PORT="pa5" ALIGN="RIGHT">PA5</TD></TR>
+      <TR><TD PORT="pc3" ALIGN="LEFT">PC3</TD><TD PORT="pa2" ALIGN="RIGHT">PA2</TD></TR>
+    </TABLE>>]
+
+  subgraph cluster_aus {
+    label=<<B>Ausgänge</B>> style="rounded,filled" fillcolor="#fff5eb" color="#fd8d3c"
+    node [shape=box style="rounded,filled" fillcolor="#fdd0a2"]
+    k1 [label=<Relais K1<BR/><FONT POINT-SIZE="9">Motor hoch</FONT>>]
+    k2 [label=<Relais K2<BR/><FONT POINT-SIZE="9">Motor runter</FONT>>]
+    led [label=<LED LD2<BR/><FONT POINT-SIZE="9">Motor läuft</FONT>> fillcolor="#fff7bc"]
+    uart [label=<USART2 TX<BR/><FONT POINT-SIZE="9">Statusmeldungen</FONT>> fillcolor="#e0e0e0"]
+  }
+
+  m [shape=circle label="M" style=filled fillcolor="#fcbba1" fontsize=16 width=0.6 fixedsize=true]
+
+  th -> mcu:pc0:w
+  tr -> mcu:pc1:w
+  eo -> mcu:pc2:w
+  eu -> mcu:pc3:w
+  mcu:pb8:e -> k1
+  mcu:pb9:e -> k2
+  mcu:pa5:e -> led
+  mcu:pa2:e -> uart
+  k1 -> m [label="hoch"]
+  k2 -> m [label="runter"]
+  k1 -> k2 [dir=both arrowhead=tee arrowtail=tee style=dashed color="#cb181d" fontcolor="#cb181d" label="verriegelt" constraint=false]
+}

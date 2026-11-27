@@ -1,0 +1,26 @@
+// Aufteilung der Firmware in Module
+digraph module {
+  graph [rankdir=TB bgcolor=white nodesep=0.5 ranksep=0.55 fontname="Helvetica" pad=0.3]
+  node  [shape=box style="rounded,filled" fontname="Helvetica" fontsize=11]
+  edge  [fontname="Helvetica" fontsize=9 arrowsize=0.7 color="#555555"]
+
+  main [label=<<B>main.cpp</B><BR/><FONT POINT-SIZE="9">Hauptschleife: lesen, schalten, setzen</FONT>> fillcolor="#e0e0e0"]
+
+  subgraph cluster_logik {
+    label=<<B>Logik</B> <FONT POINT-SIZE="9">ohne Hardware, auch auf dem PC testbar</FONT>> style="rounded,dashed" color="#31a354" fontname="Helvetica" fontsize=10
+    eing [label=<<B>eingaben.cpp</B><BR/><FONT POINT-SIZE="9">Pegel werden zu Ereignissen</FONT>> fillcolor="#e5f5e0"]
+    roll [label=<<B>rollladen.cpp</B><BR/><FONT POINT-SIZE="9">Übergangstabelle (const, Flash)</FONT>> fillcolor="#c7e9c0"]
+  }
+
+  subgraph cluster_hw {
+    label=<<B>Hardware</B>> style="rounded,dashed" color="#fd8d3c" fontname="Helvetica" fontsize=10
+    board [label=<<B>board.cpp</B><BR/><FONT POINT-SIZE="9">GPIO, Relais, LED, UART</FONT>> fillcolor="#fdd0a2"]
+    ocm3  [label=<<B>libopencm3</B><BR/><FONT POINT-SIZE="9">Registerzugriffe</FONT>> fillcolor="#fff5eb"]
+    hw    [label="STM32F103 (oder Renode)" shape=box3d fillcolor="#fee6ce"]
+  }
+
+  main -> board [label=" Eingänge lesen,\n Motor setzen"]
+  main -> eing  [label=" Bitmuster"]
+  main -> roll  [label=" Zustand,\n Ereignis"]
+  board -> ocm3 -> hw
+}

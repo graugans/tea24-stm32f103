@@ -1,0 +1,36 @@
+// interrupt_vector aus src/startup_stm32f103rb.c: ein Array von Adressen
+digraph vektor {
+  graph [rankdir=LR bgcolor=white nodesep=0.2 ranksep=0.9 fontname="Helvetica" pad=0.3]
+  node  [shape=plaintext fontname="Helvetica" fontsize=10]
+  edge  [arrowsize=0.7 fontname="Helvetica" fontsize=9]
+
+  subgraph cluster_vec {
+    label=<<B>Flash: .isr_vector</B><BR/><FONT POINT-SIZE="9">ab 0x0800 0000</FONT>> style="rounded,filled" fillcolor="#f0f7ff" color="#6baed6"
+    v [label=<
+      <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#ffffff">
+        <TR><TD BORDER="0"><B>Nr.</B></TD><TD BORDER="0"><B>interrupt_vector[]</B></TD></TR>
+        <TR><TD BORDER="0">0</TD><TD PORT="sp" BGCOLOR="#e0e0e0">&amp;_estack</TD></TR>
+        <TR><TD BORDER="0">1</TD><TD PORT="reset" BGCOLOR="#c6dbef">Reset_Handler</TD></TR>
+        <TR><TD BORDER="0">3</TD><TD PORT="hf" BGCOLOR="#c6dbef">HardFault_Handler</TD></TR>
+        <TR><TD BORDER="0"></TD><TD>…</TD></TR>
+        <TR><TD BORDER="0">15</TD><TD PORT="st" BGCOLOR="#c6dbef">SysTick_Handler</TD></TR>
+        <TR><TD BORDER="0"></TD><TD>…</TD></TR>
+      </TABLE>>]
+  }
+
+  subgraph cluster_text {
+    label=<<B>Flash: .text</B>> style="rounded,filled" fillcolor="#e5f5e0" color="#31a354"
+    node [shape=box style="rounded,filled" fillcolor="#ffffff" fontname="Courier"]
+    r  [label="Reset_Handler()"]
+    d  [label=<Default_Handler()<BR/><FONT FACE="Helvetica" POINT-SIZE="9">Endlosschleife</FONT>>]
+    s  [label=<SysTick_Handler()<BR/><FONT FACE="Helvetica" POINT-SIZE="9">falls selbst geschrieben</FONT>> style="rounded,filled,dashed"]
+  }
+
+  ram [shape=box style="rounded,filled" fillcolor="#fff5eb" color="#fd8d3c" label=<RAM-Ende <FONT FACE="Courier">0x2000 5000</FONT><BR/><FONT POINT-SIZE="9">Startwert Stackpointer, keine Funktion</FONT>>]
+
+  v:sp:e -> ram [style=dashed color="#fd8d3c"]
+  v:reset:e -> r
+  v:hf:e -> d [label="weak alias"]
+  v:st:e -> s [label="eigene Funktion gewinnt"]
+  v:st:e -> d [style=dotted label="sonst"]
+}
