@@ -72,8 +72,8 @@ SECTIONS
   } > FLASH
 
   /* .data: initialized read/write globals.
-   * Runtime location (VMA) is RAM; the initial values are stored in
-   * flash (LMA, "AT> FLASH") right after .text and copied at reset.
+   * Runtime location (VMA) is RAM, the initial values are stored in flash
+   * (LMA, "AT> FLASH") and copied to RAM by the startup code.
    */
   .data :
   {
@@ -84,7 +84,9 @@ SECTIONS
     _edata = .;
   } > RAM AT> FLASH
 
-  /* Flash source address for .data initialization image. */
+  /* Flash source address for .data initialization image.
+   * Must come AFTER .data: before, LOADADDR(.data) is not yet known.
+   */
   _sidata = LOADADDR(.data);
 
   /* .bss: zero-initialized globals/statics in RAM.
