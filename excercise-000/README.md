@@ -21,6 +21,27 @@ git commit -m "feat: solve exercise-000 stack and memory task"
 git push -u origin solution-000
 ```
 
+### Origin und upstream prüfen
+
+Sie arbeiten in Ihrem eigenen **Fork**. Git kennt deshalb zwei entfernte
+Repositories (_Remotes_): `origin` ist Ihr Fork, dorthin pushen Sie Ihre
+Lösung. `upstream` ist das Repository des Dozenten, von dort holen Sie neue
+Aufgaben.
+
+![Zwei Remotes: der eigene Fork (origin) und das Repository des Dozenten (upstream)](../doc/img/origin-upstream.svg)
+
+Im Codespace sind beide Remotes bereits eingerichtet. Prüfen Sie es:
+
+```sh
+git remote -v
+```
+
+Dort müssen `origin` (Ihr Fork) und `upstream` (`graugans/tea24-stm32f103`)
+stehen, jeweils mit `(fetch)` und `(push)`. Fehlt `upstream`, schlägt der
+Befehl `git switch -c ... upstream/main` oben mit „invalid reference“ fehl.
+Mehr dazu im Skript, Anhang Versionskontrolle, Abschnitt „Mehrere entfernte
+Repositories: origin und upstream“.
+
 ## Programm kompilieren
 
 Das Projekt verwendet CMake (mit Presets) und die ARM-Cross-Toolchain `arm-none-eabi-gcc`:

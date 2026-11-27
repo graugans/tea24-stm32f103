@@ -18,6 +18,27 @@ git commit -m "feat: solve exercise-001 roller shutter state machine"
 git push -u origin solution-001
 ```
 
+### Origin und upstream prüfen
+
+Sie arbeiten in Ihrem eigenen **Fork**. Git kennt deshalb zwei entfernte
+Repositories (_Remotes_): `origin` ist Ihr Fork, dorthin pushen Sie Ihre
+Lösung. `upstream` ist das Repository des Dozenten, von dort holen Sie neue
+Aufgaben.
+
+![Zwei Remotes: der eigene Fork (origin) und das Repository des Dozenten (upstream)](../doc/img/origin-upstream.svg)
+
+Im Codespace sind beide Remotes bereits eingerichtet. Prüfen Sie es:
+
+```sh
+git remote -v
+```
+
+Dort müssen `origin` (Ihr Fork) und `upstream` (`graugans/tea24-stm32f103`)
+stehen, jeweils mit `(fetch)` und `(push)`. Fehlt `upstream`, schlägt der
+Befehl `git switch -c ... upstream/main` oben mit „invalid reference“ fehl.
+Mehr dazu im Skript, Anhang Versionskontrolle, Abschnitt „Mehrere entfernte
+Repositories: origin und upstream“.
+
 ## Die Anlage
 
 Stellen Sie sich einen Rollladen mit Elektromotor vor. Die Steuerung hat

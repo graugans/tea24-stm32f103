@@ -1,0 +1,29 @@
+// Zwei Remotes: eigener Fork (origin) und Repository des Dozenten (upstream)
+// Quelle: Skript Mikrocomputertechnik III, Anhang Versionskontrolle (vcs-origin-upstream)
+// Neu erzeugen: dot -Tsvg doc/img/origin-upstream.dot -o doc/img/origin-upstream.svg
+digraph G {
+  graph [rankdir=TB nodesep=0.5 ranksep=1.1 bgcolor=white pad=0.3]
+  node [fontname="Helvetica" fontsize=10 style=filled]
+  edge [fontname="Helvetica" fontsize=9 arrowsize=0.6]
+  subgraph cluster_server {
+    label=<<B>Server</B> <FONT POINT-SIZE="8">(z. B. GitHub)</FONT>> fontname="Helvetica" fontsize=10 style="rounded,filled" fillcolor="#f0f7ff" color="#6baed6"
+    fa [shape=cylinder fillcolor="#c6dbef" height=0.8 label=<<B>Fork A</B><BR/><FONT POINT-SIZE="8">origin von Student A</FONT>>]
+    up [shape=cylinder fillcolor="#fdd0a2" height=0.8 label=<<B>upstream</B><BR/><FONT POINT-SIZE="8">Repository des Dozenten</FONT>>]
+    fb [shape=cylinder fillcolor="#c6dbef" height=0.8 label=<<B>Fork B</B><BR/><FONT POINT-SIZE="8">origin von Student B</FONT>>]
+    {rank=same; fa; up; fb}
+    fa -> up [label="Fork" dir=back style=dashed color="#888888" fontcolor="#666666"]
+    up -> fb [label="Fork" style=dashed color="#888888" fontcolor="#666666"]
+  }
+  subgraph cluster_pca { label="PC von Student A" fontname="Helvetica" fontsize=9 style="rounded,filled" fillcolor="#fffbe6" color="#cccccc"
+    ra [shape=cylinder fillcolor="#c7e9c0" label="Repository"]
+    wa [shape=note fillcolor="#fff7bc" label="Arbeitskopie"] }
+  subgraph cluster_pcb { label="PC von Student B" fontname="Helvetica" fontsize=9 style="rounded,filled" fillcolor="#fffbe6" color="#cccccc"
+    rb [shape=cylinder fillcolor="#c7e9c0" label="Repository"]
+    wb [shape=note fillcolor="#fff7bc" label="Arbeitskopie"] }
+  ra -> fa [label="push" color="#08519c" fontcolor="#08519c"]  fa -> ra [label="pull" color="#08519c" fontcolor="#08519c"]
+  rb -> fb [label="push" color="#08519c" fontcolor="#08519c"]  fb -> rb [label="pull" color="#08519c" fontcolor="#08519c"]
+  up -> ra [label="fetch upstream" color="#d94801" fontcolor="#d94801"]
+  up -> rb [label="fetch upstream" color="#d94801" fontcolor="#d94801"]
+  wa -> ra [label="commit"]  ra -> wa [label="update"]
+  wb -> rb [label="commit"]  rb -> wb [label="update"]
+}
